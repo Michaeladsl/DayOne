@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Creator: Michael Raines
-CURRENT_VERSION="1.3"
+CURRENT_VERSION=" 1.3 "
 
 REPO_URL="https://raw.githubusercontent.com/Michaeladsl/DayOne/main/DayOne.sh"
 
