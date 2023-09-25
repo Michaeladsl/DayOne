@@ -2,6 +2,7 @@
 
 # Creator: Michael Raines
 CURRENT_VERSION="1.3"
+
 REPO_URL="https://raw.githubusercontent.com/Michaeladsl/DayOne/main/DayOne.sh"
 
 # Function to check the current version against the latest version on GitHub
