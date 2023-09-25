@@ -1,8 +1,7 @@
 #!/bin/bash
 
 # Creator: Michael Raines
-CURRENT_VERSION="1.3"
-
+CURRENT_VERSION="1.2"
 REPO_URL="https://raw.githubusercontent.com/Michaeladsl/DayOne/main/DayOne.sh"
 
 # Function to check the current version against the latest version on GitHub
@@ -11,7 +10,7 @@ check_version() {
     LATEST_VERSION=$(curl -s "$REPO_URL" | grep -E '^CURRENT_VERSION="' | cut -d '"' -f 2)
     
     if [ "$CURRENT_VERSION" != "$LATEST_VERSION" ]; then
-        echo "Your script is out of date. Current version is $CURRENT_VERSION, latest version is $LATEST_VERSION."
+        echo "Your script is outdated. Your version is ${RED}$CURRENT_VERSION${NC}, latest version is $LATEST_VERSION."
         echo "Please consider updating for new features and fixes."
     fi
 }
