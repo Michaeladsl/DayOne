@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Creator: Michael Raines
-CURRENT_VERSION="1.2"
+CURRENT_VERSION="1.3"
 REPO_URL="https://github.com/Michaeladsl/DayOne"
 
 # Function to check the current version against the latest version on GitHub
