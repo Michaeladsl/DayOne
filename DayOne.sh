@@ -1,9 +1,26 @@
 #!/bin/bash
 
+# Creator: Michael Raines
+CURRENT_VERSION="1.2"
+REPO_URL="https://github.com/Michaeladsl/DayOne"
+
+# Function to check the current version against the latest version on GitHub
+check_version() {
+    # Fetch the line containing the CURRENT_VERSION string from the remote repository
+    LATEST_VERSION=$(curl -s "$REPO_URL/blob/main/yourscript.sh" | grep "CURRENT_VERSION=" | cut -d '"' -f 2)
+    
+    if [ "$CURRENT_VERSION" != "$LATEST_VERSION" ]; then
+        echo "Your script is out of date. Current version is $CURRENT_VERSION, latest version is $LATEST_VERSION."
+        echo "Please consider updating for new features and fixes."
+    fi
+}
+
 regions_flag=false  # Default value
 DISABLED_TOOLS=""
 list_tools_flag=false # Default value
 verbose_mode=false  # Default value
+new_tool_downloaded=0
+
 
 RED=$(tput setaf 1)
 GREEN=$(tput setaf 2; tput bold)
@@ -41,21 +58,21 @@ for arg in "$@"; do
             exit 0
             ;;
         -t)
-            echo "Available tools that can be disabled:"
+            echo "Available tools that can be disabled with -D:"
             echo " 1. pymeta"
             echo " 2. cloudenum"
             echo " 3. crosslinked"
             echo " 4. dehashed"
             echo " 5. dnscan"
             echo " 6. subfinder"
-            echo " 7. curl_subs"
+            echo " 7. crt.sh"
             echo " 8. subjack"
             echo " 9. dnstwist"
             echo " 10. DNSMap"
             echo " 11. registereddomains"
             echo " 12. AADUserEnum"
             echo " 13. onedrive_enum"
-            echo " 14. comma-separated: pymeta,cloudenum,crosslinked,dehashed,dnscan,subfinder,curl_subs,subjack,dnstwist,DNSMap,registereddomains,AADUserEnum,onedrive_enum"
+            echo " 14. comma-separated: pymeta,cloudenum,crosslinked,dehashed,dnscan,subfinder,crt.sh,subjack,dnstwist,DNSMap,registereddomains,AADUserEnum,onedrive_enum"
             exit 0
             ;;
         *)
@@ -85,6 +102,30 @@ if [ "$verbose_mode" = true ]; then
     set -x
 fi
 
+# URLs for each tool
+CrossLinked_url="https://github.com/m8sec/CrossLinked.git"
+dnscan_url="https://github.com/rbsec/dnscan.git"
+cloud_enum_url="https://github.com/initstring/cloud_enum.git"
+onedrive_user_enum_url="https://github.com/nyxgeek/onedrive_user_enum.git"
+subfinder_url="https://github.com/projectdiscovery/subfinder.git"
+crt_sh_url="https://github.com/az7rb/crt.sh.git"
+
+# Function to clone a repository if its directory doesn't exist
+clone_repo_if_missing() {
+    local dir_name="$1"
+    local repo_url="$2"
+    if [ ! -d "$dir_name" ]; then
+        echo "Directory for tool $dir_name not found. Cloning repository..."
+        git clone "$repo_url"
+        if [ $? -ne 0 ]; then
+            echo "${RED}Git clone of $dir_name failed. Exiting...${NC}"
+            exit 1
+        fi
+        return 1  # Return 1 to indicate that a new tool was cloned
+    fi
+    return 0  # Return 0 to indicate no new tool was cloned
+}
+
 # Check for the presence of DayOneScans directory
 if [ ! -d "DayOneScans" ]; then
     echo "DayOneScans directory not found. Creating..."
@@ -94,33 +135,41 @@ if [ ! -d "DayOneScans" ]; then
     
     # Clone repositories
     echo "Cloning required repositories..."
-    git clone https://github.com/m8sec/CrossLinked.git
+    git clone $CrossLinked_url
     if [ $? -ne 0 ]; then
         echo "${RED}Git clone of crosslinked failed. Exiting...${NC}"
         exit 1
     fi
 
-    git clone https://github.com/rbsec/dnscan.git
+    git clone $dnscan_url
     if [ $? -ne 0 ]; then
         echo "${RED}Git clone of dnscan failed. Exiting...${NC}"
         exit 1
     fi
-    git clone https://github.com/initstring/cloud_enum.git
+
+    git clone $cloud_enum_url
     if [ $? -ne 0 ]; then
         echo "${RED}Git clone of cloud_enum failed. Exiting...${NC}"
         exit 1
     fi
-    git clone https://github.com/nyxgeek/onedrive_user_enum.git
+
+    git clone $onedrive_user_enum_url
     if [ $? -ne 0 ]; then
         echo "${RED}Git clone of onedrive_enum failed. Exiting...${NC}"
         exit 1
     fi
-    git clone https://github.com/projectdiscovery/subfinder.git
+
+    git clone $subfinder_url
     if [ $? -ne 0 ]; then
         echo "${RED}Git clone of subfinder failed. Exiting...${NC}"
         exit 1
     fi
 
+    git clone $crt_sh_url
+    if [ $? -ne 0 ]; then
+        echo "${RED}Git clone of crt.sh failed. Exiting...${NC}"
+        exit 1
+    fi
 
     #Update Golang
     sudo apt update && sudo apt install golang -y > /dev/null 2>&1
@@ -146,6 +195,51 @@ if [ ! -d "DayOneScans" ]; then
     } > DayOneScans/tools/requirements.txt
 
 
+fi
+
+
+# For new tools! Check run function for newly added tools if DayOneScans already exists
+#if [ -d "DayOneScans/tools" ]; then
+    #cd DayOneScans/tools
+
+    # Check existence of newly added tools (examples)
+    #clone_repo_if_missing "NewTool" "$NewTool_url"
+    #if [ $? -eq 1 ]; then new_tool_downloaded=1; fi
+    
+    #clone_repo_if_missing "dnscan" "$dnscan_url"
+    #if [ $? -eq 1 ]; then new_tool_downloaded=1; fi
+
+    #clone_repo_if_missing "cloud_enum" "$cloud_enum_url"
+    #if [ $? -eq 1 ]; then new_tool_downloaded=1; fi
+
+    # Change back to original directory
+    #cd -
+#fi
+
+# If a new tool was downloaded, then update requirements.txt and install new packages
+if [ $new_tool_downloaded -eq 1 ]; then
+    cd DayOneScans/tools  # Make sure to be in the correct directory
+    # Initialize empty combined_requirements.txt
+    echo "" > combined_requirements.txt
+    
+    # Loop through all directories in the current folder (DayOneScans/tools)
+    for dir in ./*; do
+        if [ -d "$dir" ]; then
+            # If the directory contains a requirements.txt, append it to the combined file
+            if [ -f "$dir/requirements.txt" ]; then
+                cat "$dir/requirements.txt" >> combined_requirements.txt
+                echo "" >> combined_requirements.txt
+            fi
+        fi
+    done
+    
+    # Remove duplicate entries from combined_requirements.txt
+    sort combined_requirements.txt | uniq > temp_requirements.txt
+    mv temp_requirements.txt combined_requirements.txt
+    
+    # Install required Python packages
+    pip install -r combined_requirements.txt
+    cd -  # Change back to original directory
 fi
 
 # Modify azure_regions.py and gcp_regions.py
@@ -231,7 +325,7 @@ echo "                                                    ${NC}";
 echo " "
 echo " "
 echo " "
-
+check_version
 
 # Prompt the user for a domain
 read -p "${ORANGE}Enter the domain (domain.com): ${NC}" domain
@@ -246,21 +340,45 @@ fi
 echo " "
 echo " "
 
-# Prompt the user to choose a format for {f}{last}
-echo " ${ORANGE}=========== Choose a format for {f}{last}: ===========${NC}"
-echo " 1. {f}{last}"
-echo " 2. {first}.{last}"
-echo " 3. {first}{last}"
-echo " 4. {first}{l}"
-echo " "
-echo " "
-read -p "${ORANGE}Enter the option (1/2/3/4): ${NC}" format_option
-echo " "
-echo " "
+if ! is_tool_disabled "crosslinked"; then
+
+    # Prompt the user to choose a format for {f}{last}
+    echo " ${ORANGE}=========== Choose a format for {f}{last}: ===========${NC}"
+    echo " 1. {f}{last}"
+    echo " 2. {first}.{last}"
+    echo " 3. {first}{last}"
+    echo " 4. {first}{l}"
+    echo " "
+    echo " "
+    read -p "${ORANGE}Enter the option (1/2/3/4): ${NC}" format_option
+    echo " "
+    echo " "
+
+    # Determine the format based on the user's choice
+    case $format_option in
+        1) format="{f}{last}" ;;
+        2) format="{first}.{last}" ;;
+        3) format="{first}{last}" ;;
+        4) format="{first}{l}" ;;
+        *) echo "Invalid option. Using default format {f}{last}"; format="{f}{last}" ;;
+    esac
+
+    # Construct the email format
+    email_format="${format}@${domain}"
+    echo " "
+    echo " "
+
+    # Prompt the user for the organization name as it appears on LinkedIn or use the domain
+    read -p "${ORANGE}Enter the organization name as it appears on${NC} ${RED}LinkedIn${NC} ${ORANGE}or re-enter the domain:${NC} " org_name
+    echo " "
+    echo " "
+fi
+
 read -p "${ORANGE}Do you want to attempt the Microsoft Direct Send vulnerability?${NC} (${GREEN}YES${NC}/${RED}NO${NC}): " direct_send
 echo " "
 echo " "
 direct_send=$(echo "$direct_send" | tr '[:upper:]' '[:lower:]')
+
 # Check if the user wants to attempt direct send vulnerability
 if [ "$direct_send" == "yes" ]; then
     read -p "${ORANGE}Enter your targets email typically (POC): ${NC}" poc_email
@@ -269,26 +387,10 @@ if [ "$direct_send" == "yes" ]; then
     read -p "${ORANGE}Enter your email: ${NC}" employee_email
 fi
 
-# Determine the format based on the user's choice
-case $format_option in
-    1) format="{f}{last}" ;;
-    2) format="{first}.{last}" ;;
-    3) format="{first}{last}" ;;
-    4) format="{first}{l}" ;;
-    *) echo "Invalid option. Using default format {f}{last}"; format="{f}{last}" ;;
-esac
-
-# Construct the email format
-email_format="${format}@${domain}"
-echo " "
-echo " "
-# Prompt the user for the organization name as it appears on LinkedIn or use the domain
-read -p "${ORANGE}Enter the organization name as it appears on${NC} ${RED}LinkedIn${NC} ${ORANGE}or re-enter the domain:${NC} " org_name
-echo " "
-echo " "
+#
 
 # Prompt the user for permission to test cloud environments
-read -p "${ORANGE}Do you have permission to test cloud environments?${NC}(${GREEN}YES${NC}/${RED}NO${NC})${YELLOW}:${NC} " permission
+read -p "${ORANGE}Do you have permission to test cloud environments (AADUserEnum)?${NC}(${GREEN}YES${NC}/${RED}NO${NC})${YELLOW}:${NC} " permission
 echo " "
 echo " "
 echo " "
@@ -424,6 +526,7 @@ fi
 
 
 # Run cloud_enum.py with specified parameters
+cloud_enum_keyword=$(echo $domain | cut -d "." -f "1")
 if ! is_tool_disabled "cloudenum"; then
     echo " "
     echo " "
@@ -432,7 +535,7 @@ if ! is_tool_disabled "cloudenum"; then
     echo "${GREEN}========== Running cloud_enum ==========${NC}"
     echo " "
     echo " "
-    script -c "python DayOneScans/tools/cloud_enum/cloud_enum.py -k '$domain' -t 25 -l 'DayOneScans/$domain/CloudEnum.Log' | grep -v -e '\[!\] DNS Timeout on' -e '\[!\] Connection error on' -e '^HTTPConnectionPool'" -f DayOneScans/$domain/CloudEnumFULL.txt
+    script -c "python DayOneScans/tools/cloud_enum/cloud_enum.py -k '$domain' -k '$cloud_enum_keyword' -t 25 -l 'DayOneScans/$domain/CloudEnum.Log' | grep -v -e '\[!\] DNS Timeout on' -e '\[!\] Connection error on' -e '^HTTPConnectionPool'" -f DayOneScans/$domain/CloudEnumFULL.txt
 
 fi
 
@@ -478,12 +581,14 @@ if ! is_tool_disabled "dnscan"; then
         grep -oP '(MX|A|TXT|SRV|NS|SOA) \K[^ ]*\.com' "DayOneScans/$domain/dnsrecon.txt" > "DayOneScans/$domain/extracted_dnsrecords.txt"
         sort -u DayOneScans/$domain/temp_dnsinfo.txt DayOneScans/$domain/extracted_dnsrecords.txt > DayOneScans/$domain/dnsrecords.txt
         rm DayOneScans/$domain/temp_dnsinfo.txt
+        grep -E -o "[a-zA-Z0-9.-]+\.$domain" "DayOneScans/$domain/DNSInfo" >> "DayOneScans/$domain/subdomains.txt"
     fi
 
 fi
 
 # Extracting email for direct send attempt
 smtp_server=$(grep -E -o '[A-Za-z0-9.-]+\.mail\.protection\.outlook\.com' "DayOneScans/$domain/DNSInfo" | grep -o -E '[A-Za-z0-9-]+\.mail\.protection\.outlook\.com')
+
 
 # Run subfinder with specified parameters
 if ! is_tool_disabled "subfinder"; then
@@ -498,6 +603,21 @@ if ! is_tool_disabled "subfinder"; then
     grep -E -o '([0-9]{1,3}\.){3}[0-9]{1,3}' "DayOneScans/$domain/subfindersubs" | sort -u > "DayOneScans/$domain/hosts.txt"
 fi
 
+if ! is_tool_disabled "crt.sh"; then
+    echo " "
+    echo " "
+    echo " "
+    echo " "
+    echo " "
+    echo " "
+    cd DayOneScans/tools/crt.sh
+    chmod +x crt.sh
+    ./crt.sh -d $domain
+    cd -
+    mv DayOneScans/tools/crt.sh/output/domain.$domain.txt DayOneScans/$domain/crtsubdomains.txt
+fi
+
+cat "DayOneScans/$domain/crtsubdomains.txt" >> "DayOneScans/$domain/subdomains.txt"
 
 # Extract IPs from DNSInfo and append to hosts.txt
 grep -E -o '([0-9]{1,3}\.){3}[0-9]{1,3}' "DayOneScans/$domain/DNSInfo" | sort -u >> "DayOneScans/$domain/hosts.txt"
@@ -508,7 +628,7 @@ grep -E -o '([0-9]{1,3}\.){3}[0-9]{1,3}' "DayOneScans/$domain/dnsrecon.txt" | so
 sort -u "DayOneScans/$domain/hosts.txt" -o "DayOneScans/$domain/hosts.txt"
 
 # Extract subdomains and create subdomains.txt
-cut -d ',' -f 1 "DayOneScans/$domain/subfindersubs" | sort -u > "DayOneScans/$domain/subdomains.txt"
+cut -d ',' -f 1 "DayOneScans/$domain/subfindersubs" | sort -u >> "DayOneScans/$domain/subdomains.txt"
 
 # Sort and remove duplicates from subdomains.txt
 sort -u "DayOneScans/$domain/subdomains.txt" -o "DayOneScans/$domain/subdomains.txt"
@@ -541,7 +661,7 @@ if ! is_tool_disabled "dnstwist"; then
     echo "${GREEN}=============== Looking For Squatters ===============${NC}"
 
     # Run dnstwist
-    dnstwist -o DayOneScans/$domain/squatting.csv -f csv -r "$domain"
+    dnstwist -o DayOneScans/$domain/squatting.csv -f csv -t 20 -r "$domain"
     echo " "
     echo "${RED}Squatters found...      ${NC}"
 fi
@@ -553,6 +673,7 @@ if ! is_tool_disabled "DNSMap"; then
     echo " "
     echo "${GREEN}============= Downloading DNSMap image =============${NC}"
     echo " "
+
     # Use -w to write the HTTP status code to a variable, and -o to specify the output file
     http_status=$(curl -w "%{http_code}" -o "DayOneScans/$domain/DNSMap.png" "https://dnsdumpster.com/static/map/$domain.png")
     
