@@ -2,12 +2,12 @@
 
 # Creator: Michael Raines
 CURRENT_VERSION="1.3"
-REPO_URL="https://github.com/Michaeladsl/DayOne"
+REPO_URL="https://raw.githubusercontent.com/Michaeladsl/DayOne/main/DayOne.sh"
 
 # Function to check the current version against the latest version on GitHub
 check_version() {
     # Fetch the line containing the CURRENT_VERSION string from the remote repository
-    LATEST_VERSION=$(curl -s "$REPO_URL/blob/main/DayOne.sh" | grep "CURRENT_VERSION=" | cut -d '"' -f 2)
+    LATEST_VERSION=$(curl -s "$REPO_URL" | grep "CURRENT_VERSION=" | cut -d '"' -f 2)
     
     if [ "$CURRENT_VERSION" != "$LATEST_VERSION" ]; then
         echo "Your script is out of date. Current version is $CURRENT_VERSION, latest version is $LATEST_VERSION."
