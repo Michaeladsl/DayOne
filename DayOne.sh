@@ -500,7 +500,7 @@ if ! is_tool_disabled "onedrive_enum"; then
     echo " "
     cd DayOneScans/tools/onedrive_user_enum
     python onedrive_enum.py -d "$domain" -U $SCRIPTDIR/DayOneScans/$domain/usernames.txt -r
-    mv emails* $SCRIPT_DIR/DayOneScans/$domain/emails_valid.txt
+    mv emails* $SCRIPTDIR/DayOneScans/$domain/emails_valid.txt
     cd - > /dev/null
 fi
 
