@@ -199,12 +199,12 @@ fi
 
 
 # For new tools! Check run function for newly added tools if DayOneScans already exists
-#if [ -d "DayOneScans/tools" ]; then
-    #cd DayOneScans/tools
+if [ -d "DayOneScans/tools" ]; then
+    cd DayOneScans/tools
 
     # Check existence of newly added tools (examples)
-    #clone_repo_if_missing "NewTool" "$NewTool_url"
-    #if [ $? -eq 1 ]; then new_tool_downloaded=1; fi
+    clone_repo_if_missing "crt.sh" "git clone $crt_sh_url"
+    if [ $? -eq 1 ]; then new_tool_downloaded=1; fi
     
     #clone_repo_if_missing "dnscan" "$dnscan_url"
     #if [ $? -eq 1 ]; then new_tool_downloaded=1; fi
@@ -213,8 +213,8 @@ fi
     #if [ $? -eq 1 ]; then new_tool_downloaded=1; fi
 
     # Change back to original directory
-    #cd -
-#fi
+    cd -
+fi
 
 # If a new tool was downloaded, then update requirements.txt and install new packages
 if [ $new_tool_downloaded -eq 1 ]; then
