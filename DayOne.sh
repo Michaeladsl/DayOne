@@ -510,7 +510,7 @@ permission=$(echo "$permission" | tr '[:upper:]' '[:lower:]')
 if [ "$permission" == "yes" ]; then
     # Send the PowerShell command to the TMUX session
     if ! is_tool_disabled "AADUserEnum"; then
-        tmux send-keys -t aadint_session1 "Get-Content ./DayOneScans/$domain/usernames.txt | Invoke-AADIntUserEnumerationAsOutsider | Export-Csv -Path DayOneScans/$domain/AADuserenum.txt -NoTypeInformation" C-m
+        tmux send-keys -t aadint_session1 "Get-Content ./DayOneScans/$domain/usernames.txt | ForEach-Object { "$_@$domain" } | Invoke-AADIntUserEnumerationAsOutsider | Export-Csv -Path DayOneScans/$domain/AADuserenum.txt -NoTypeInformation" C-m
     
         # Wait for the command to finish (you can adjust the sleep time as needed)
         sleep 20
