@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Creator: Michael Raines
-CURRENT_VERSION="1.2"
+CURRENT_VERSION="1.3"
 REPO_URL="https://raw.githubusercontent.com/Michaeladsl/DayOne/main/DayOne.sh"
 
 # Function to check the current version against the latest version on GitHub
@@ -387,7 +387,10 @@ if [ "$direct_send" == "yes" ]; then
     read -p "${ORANGE}Enter your email: ${NC}" employee_email
 fi
 
-#
+echo " "
+echo " "
+echo " "
+echo " "
 
 # Prompt the user for permission to test cloud environments
 read -p "${ORANGE}Do you have permission to test cloud environments (AADUserEnum)?${NC}(${GREEN}YES${NC}/${RED}NO${NC})${YELLOW}:${NC} " permission
@@ -485,6 +488,17 @@ if [ -f "DayOneScans/$domain/usernames.txt" ]; then
     sed -e 's/@.*//' -e 's/www\.//' "DayOneScans/$domain/usernames.txt" > "DayOneScans/$domain/cleaned_usernames.txt"
     mv "DayOneScans/$domain/cleaned_usernames.txt" "DayOneScans/$domain/usernames.txt"
     sort -u "DayOneScans/$domain/usernames.txt" -o "DayOneScans/$domain/usernames.txt"
+    
+fi
+
+if [ -f "DayOneScans/$domain/usernames.txt" ]; then
+    # Append usernames with "@domain" to emails.txt
+    while read username; do
+        echo "${username}@$domain"
+    done < "DayOneScans/$domain/usernames.txt" >> "DayOneScans/$domain/emails.txt"
+
+    # Remove duplicates from emails.txt
+    sort -u "DayOneScans/$domain/emails.txt" -o "DayOneScans/$domain/emails.txt"
 fi
 
 
@@ -505,12 +519,14 @@ if ! is_tool_disabled "onedrive_enum"; then
 fi
 
 sort -u DayOneScans/$domain/emails_valid.txt -o DayOneScans/$domain/emails_valid.txt
+
 permission=$(echo "$permission" | tr '[:upper:]' '[:lower:]')
+
 # Check if permission is granted
 if [ "$permission" == "yes" ]; then
     # Send the PowerShell command to the TMUX session
     if ! is_tool_disabled "AADUserEnum"; then
-        tmux send-keys -t aadint_session1 "Get-Content ./DayOneScans/$domain/usernames.txt | ForEach-Object { "$_@$domain" } | Invoke-AADIntUserEnumerationAsOutsider | Export-Csv -Path DayOneScans/$domain/AADuserenum.txt -NoTypeInformation" C-m
+        tmux send-keys -t aadint_session1 "Get-Content DayOneScans/$domain/emails.txt | Invoke-AADIntUserEnumerationAsOutsider | Export-Csv -Path DayOneScans/$domain/AADuserenum.txt -NoTypeInformation" C-m
     
         # Wait for the command to finish (you can adjust the sleep time as needed)
         sleep 20
@@ -549,6 +565,7 @@ fi
 # Read AADuserenum.txt and extract valid usernames
 if [ -f "DayOneScans/$domain/AADuserenum.txt" ]; then
     awk -F',' '$2 ~ /"True"/ { gsub(/"/, "", $1); print $1 }' "DayOneScans/$domain/AADuserenum.txt" >> "DayOneScans/$domain/validusers.txt"
+    awk -F'@' '{print $1}' "DayOneScans/$domain/validusers.txt" | sort > "DayOneScans/$domain/temp.txt" && mv "DayOneScans/$domain/temp.txt" "DayOneScans/$domain/validusers.txt"
 
 fi
 
