@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Creator: Michael Raines
-CURRENT_VERSION="1.3"
+CURRENT_VERSION="1.4"
 REPO_URL="https://raw.githubusercontent.com/Michaeladsl/DayOne/main/DayOne.sh"
 
 # Function to check the current version against the latest version on GitHub
@@ -348,9 +348,10 @@ if ! is_tool_disabled "crosslinked"; then
     echo " 2. {first}.{last}"
     echo " 3. {first}{last}"
     echo " 4. {first}{l}"
+    echo " 5. {first}"
     echo " "
     echo " "
-    read -p "${ORANGE}Enter the option (1/2/3/4): ${NC}" format_option
+    read -p "${ORANGE}Enter the option (1/2/3/4/5): ${NC}" format_option
     echo " "
     echo " "
 
@@ -360,6 +361,7 @@ if ! is_tool_disabled "crosslinked"; then
         2) format="{first}.{last}" ;;
         3) format="{first}{last}" ;;
         4) format="{first}{l}" ;;
+        5) format="{first}" ;;
         *) echo "Invalid option. Using default format {f}{last}"; format="{f}{last}" ;;
     esac
 
