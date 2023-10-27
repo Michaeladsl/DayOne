@@ -827,10 +827,10 @@ else
 fi
 
 if [ -r "DayOneScans/$domain/${domain}BreachData.csv" ]; then
-    breach_data_count=$(wc -l < "DayOneScans/$domain/${domain}BreachData.csv")
+    breach_data_count=$(($(wc -l < "DayOneScans/$domain/${domain}BreachData.csv") - 1))
 else
     echo "File 'DayOneScans/$domain/${domain}BreachData.csv' not found or is not readable."
-    breach_data_count=0
+    breach_data_count=0  # Set to 0 if the file doesn't exist
 fi
 
 if [ -r "DayOneScans/$domain/metadata.csv" ]; then
