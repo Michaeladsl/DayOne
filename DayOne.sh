@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Creator: Michael Raines
-CURRENT_VERSION="1.4"
+CURRENT_VERSION="1.5"
 REPO_URL="https://raw.githubusercontent.com/Michaeladsl/DayOne/main/DayOne.sh"
 
 # Function to check the current version against the latest version on GitHub
@@ -742,17 +742,23 @@ fi
 tmux kill-session -t aadint_session1
 
 
-if [ "$direct_send" == "yes" ]; then
-    echo "${GREEN}========= Direct Send Vulnerability Test =========${NC}"
-    echo " "
-    echo " "
-    tmux new-session -d -s mail_session 'pwsh'
-    sleep 4
-    tmux send-keys -t mail_session "Send-MailMessage -SmtpServer $smtp_server -To $poc_email -From test@$domain -Subject 'Test Email' -Body 'This is a test as part of the current round of testing. Please forward this to $employee_email' -BodyAsHTML" C-m
-    sleep 10
-    tmux capture-pane -t mail_session -e -p > DayOneScans/$domain/DirectSend.txt
-    cat "DayOneScans/$domain/DirectSend.txt"
+if [ -n "$smtp_server" ]; then
+    # Check if the direct_send flag is set to "yes"
+    if [ "$direct_send" == "yes" ]; then
+        echo "${GREEN}========= Direct Send Vulnerability Test =========${NC}"
+        echo " "
+        echo " "
+        tmux new-session -d -s mail_session 'pwsh'
+        sleep 4
+        tmux send-keys -t mail_session "Send-MailMessage -SmtpServer $smtp_server -To $poc_email -From test@$domain -Subject 'Test Email' -Body 'This is a test as part of the current round of testing. Please forward this to $employee_email' -BodyAsHTML" C-m
+        sleep 10
+        tmux capture-pane -t mail_session -e -p > "DayOneScans/$domain/DirectSend.txt"
+        cat "DayOneScans/$domain/DirectSend.txt"
+    fi
+else
+    echo "Not Eligible For Direct Send Attempt"
 fi
+
 
 tmux kill-session -t mail_session
 
@@ -1056,10 +1062,19 @@ echo "${GREEN}================== Zipping Files ==================${NC}"
 # Define the zip filename
 zip_filename="${domain}_OSINT.zip"
 
-# Navigate to the directory containing the files you want to zip
 cd "DayOneScans/$domain"
+
+# Check if the zip file already exists
+while [ -e "$zip_filename" ]; do
+    # Generate a random 4-character string (you can adjust the length as needed)
+    random_chars="$(LC_ALL=C tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 4)"
+    
+    # Append the random string to the zip filename
+    zip_filename="${domain}_OSINT_${random_chars}.zip"
+done
+
 # Create the zip archive containing all files in the current directory and subdirectories
-zip -r $zip_filename * > /dev/null 2>&1
+zip -r "$zip_filename" * > /dev/null 2>&1
 
 # Navigate back to the original directory, if needed
 cd - > /dev/null
