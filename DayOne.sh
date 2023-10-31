@@ -590,7 +590,7 @@ if ! is_tool_disabled "dnscan"; then
     echo "${GREEN}========== Gathering DNS Info ==========${NC}"
     echo " "
     echo " "
-    python DayOneScans/tools/dnscan/dnscan.py -d "$domain" -o "DayOneScans/$domain/DNSInfo" -t 50
+    python DayOneScans/tools/dnscan/dnscan.py -d "$domain" -n -o "DayOneScans/$domain/DNSInfo" -t 50
     awk -F" - " '/ - / {print $2}' "DayOneScans/$domain/DNSInfo" > "DayOneScans/$domain/temp_dnsinfo.txt"
 
     dnsrecon -d "$domain" -t std > "DayOneScans/$domain/dnsrecon.txt"
