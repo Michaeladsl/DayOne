@@ -1,27 +1,25 @@
 #!/bin/bash
 
 # Creator: Michael Raines
-CURRENT_VERSION="1.5"
+CURRENT_VERSION="1.6"
 REPO_URL="https://raw.githubusercontent.com/Michaeladsl/DayOne/main/DayOne.sh"
 
 # Function to check the current version against the latest version on GitHub
 check_version() {
-    # Fetch the line containing the CURRENT_VERSION string from the remote repository
     LATEST_VERSION=$(curl -s "$REPO_URL" | grep -E '^CURRENT_VERSION="' | cut -d '"' -f 2)
-    
     if [ "$CURRENT_VERSION" != "$LATEST_VERSION" ]; then
         echo "Your script is outdated. Your version is ${RED}$CURRENT_VERSION${NC}, latest version is $LATEST_VERSION."
         echo "Please consider updating for new features and fixes."
     fi
 }
 
-regions_flag=false  # Default value
+regions_flag=false
 DISABLED_TOOLS=""
-list_tools_flag=false # Default value
-verbose_mode=false  # Default value
+list_tools_flag=false
+verbose_mode=false
 new_tool_downloaded=0
 
-
+# Color definitions
 RED=$(tput setaf 1)
 GREEN=$(tput setaf 2; tput bold)
 ORANGE=$(tput setaf 3)
@@ -33,8 +31,22 @@ while getopts "D:rthv" flag; do
     case "$flag" in
         D) DISABLED_TOOLS="$OPTARG" ;;
         r) regions_flag=true ;;
-        t) list_tools_flag=true ;;
-        v) verbose_mode=true ;;
+        t) echo "Available tools that can be disabled with -D:"
+           echo " 1. pymeta"
+           echo " 2. cloudenum"
+           echo " 3. crosslinked"
+           echo " 4. dehashed"
+           echo " 5. dnscan"
+           echo " 6. subfinder"
+           echo " 7. crt.sh"
+           echo " 8. subjack"
+           echo " 9. dnstwist"
+           echo " 10. DNSMap"
+           echo " 11. registereddomains"
+           echo " 12. AADUserEnum"
+           echo " 13. onedrive_enum"
+           echo " 14. comma-separated: pymeta,cloudenum,crosslinked,dehashed,dnscan,subfinder,crt.sh,subjack,dnstwist,DNSMap,registereddomains,AADUserEnum,onedrive_enum"
+           exit 0 ;;
         h) echo "Usage: $0 [-D <tool_name>] [-r] [-t] [-v]"
            echo " -D <tool_name> : Disable a specific tool (e.g., pymeta, cloudenum)"
            echo " -r             : Enable all regions in cloud_enum (slow)"
@@ -47,73 +59,40 @@ while getopts "D:rthv" flag; do
     esac
 done
 
-# Iterate over all provided arguments
-for arg in "$@"; do
-    case $arg in
-        -h)
-            echo "Usage: scriptname [options]"
-            echo "  -h    Show this help message"
-            echo "  -t    Show some other type of information"
-            # ... other options ...
-            exit 0
-            ;;
-        -t)
-            echo "Available tools that can be disabled with -D:"
-            echo " 1. pymeta"
-            echo " 2. cloudenum"
-            echo " 3. crosslinked"
-            echo " 4. dehashed"
-            echo " 5. dnscan"
-            echo " 6. subfinder"
-            echo " 7. crt.sh"
-            echo " 8. subjack"
-            echo " 9. dnstwist"
-            echo " 10. DNSMap"
-            echo " 11. registereddomains"
-            echo " 12. AADUserEnum"
-            echo " 13. onedrive_enum"
-            echo " 14. comma-separated: pymeta,cloudenum,crosslinked,dehashed,dnscan,subfinder,crt.sh,subjack,dnstwist,DNSMap,registereddomains,AADUserEnum,onedrive_enum"
-            exit 0
-            ;;
-        *)
-            # unrecognized option
-            ;;
-    esac
-done
 
 # Convert the comma-separated list into an array
 IFS=',' read -ra DISABLED_ARRAY <<< "$DISABLED_TOOLS"
 
-# Reset argument index so $1 will refer to the first non-option argument
 shift $((OPTIND-1))
 
 is_tool_disabled() {
     local tool="$1"
     for disabled_tool in "${DISABLED_ARRAY[@]}"; do
         if [[ "$disabled_tool" == "$tool" ]]; then
-            return 0  # 0 is true in bash
+            return 0
         fi
     done
-    return 1  # 1 is false in bash
+    return 1
 }
-
 
 if [ "$verbose_mode" = true ]; then
     set -x
 fi
 
 # URLs for each tool
-CrossLinked_url="https://github.com/m8sec/CrossLinked.git"
-dnscan_url="https://github.com/rbsec/dnscan.git"
-cloud_enum_url="https://github.com/initstring/cloud_enum.git"
-onedrive_user_enum_url="https://github.com/nyxgeek/onedrive_user_enum.git"
-subfinder_url="https://github.com/projectdiscovery/subfinder.git"
-crt_sh_url="https://github.com/az7rb/crt.sh.git"
+declare -A tool_urls=(
+    ["CrossLinked"]="https://github.com/m8sec/CrossLinked.git"
+    ["dnscan"]="https://github.com/rbsec/dnscan.git"
+    ["cloud_enum"]="https://github.com/initstring/cloud_enum.git"
+    ["onedrive_user_enum"]="https://github.com/nyxgeek/onedrive_user_enum.git"
+    ["subfinder"]="https://github.com/projectdiscovery/subfinder.git"
+    ["crt_sh"]="https://github.com/az7rb/crt.sh.git"
+)
 
 # Function to clone a repository if its directory doesn't exist
 clone_repo_if_missing() {
     local dir_name="$1"
-    local repo_url="$2"
+    local repo_url="${tool_urls[$dir_name]}"
     if [ ! -d "$dir_name" ]; then
         echo "Directory for tool $dir_name not found. Cloning repository..."
         git clone "$repo_url"
@@ -121,9 +100,9 @@ clone_repo_if_missing() {
             echo "${RED}Git clone of $dir_name failed. Exiting...${NC}"
             exit 1
         fi
-        return 1  # Return 1 to indicate that a new tool was cloned
+        return 1 
     fi
-    return 0  # Return 0 to indicate no new tool was cloned
+    return 0
 }
 
 # Check for the presence of DayOneScans directory
@@ -132,85 +111,36 @@ if [ ! -d "DayOneScans" ]; then
     mkdir -p DayOneScans/tools
     cd DayOneScans/tools
 
-    
-    # Clone repositories
+    # Clone repositories using the function
     echo "Cloning required repositories..."
-    git clone $CrossLinked_url
-    if [ $? -ne 0 ]; then
-        echo "${RED}Git clone of crosslinked failed. Exiting...${NC}"
-        exit 1
-    fi
+    for tool in "${!tool_urls[@]}"; do
+        clone_repo_if_missing "$tool"
+    done
 
-    git clone $dnscan_url
-    if [ $? -ne 0 ]; then
-        echo "${RED}Git clone of dnscan failed. Exiting...${NC}"
-        exit 1
-    fi
-
-    git clone $cloud_enum_url
-    if [ $? -ne 0 ]; then
-        echo "${RED}Git clone of cloud_enum failed. Exiting...${NC}"
-        exit 1
-    fi
-
-    git clone $onedrive_user_enum_url
-    if [ $? -ne 0 ]; then
-        echo "${RED}Git clone of onedrive_enum failed. Exiting...${NC}"
-        exit 1
-    fi
-
-    git clone $subfinder_url
-    if [ $? -ne 0 ]; then
-        echo "${RED}Git clone of subfinder failed. Exiting...${NC}"
-        exit 1
-    fi
-
-    git clone $crt_sh_url
-    if [ $? -ne 0 ]; then
-        echo "${RED}Git clone of crt.sh failed. Exiting...${NC}"
-        exit 1
-    fi
-
-    #Update Golang
+    # Additional installation steps
     sudo apt update && sudo apt install golang -y > /dev/null 2>&1
 
     # Install subfinder
-    cd subfinder/v2/cmd/subfinder
-    go build .
-    sudo mv subfinder /usr/local/bin/
-    cd ../../../../../..
-
+    if [ -d "subfinder/v2/cmd/subfinder" ]; then
+        cd subfinder/v2/cmd/subfinder
+        go build .
+        sudo mv subfinder /usr/local/bin/
+        cd ../../../../../..
+    fi
 
     sudo pip3 install pymetasec > /dev/null 2>&1
 
-    # Combine requirements.txt files
-   {
-    cat DayOneScans/tools/CrossLinked/requirements.txt
-    echo
-    cat DayOneScans/tools/dnscan/requirements.txt
-    echo
-    cat DayOneScans/tools/cloud_enum/requirements.txt
-    echo
-    cat DayOneScans/tools/onedrive_user_enum/requirements.txt
-    } > DayOneScans/tools/requirements.txt
-
-
+    cd -  # Return to the original directory
 fi
-
 
 # For new tools! Check run function for newly added tools if DayOneScans already exists
 if [ -d "DayOneScans/tools" ]; then
     cd DayOneScans/tools
 
     # Check existence of newly added tools (examples)
-    clone_repo_if_missing "crt.sh" "git clone $crt_sh_url"
-    if [ $? -eq 1 ]; then new_tool_downloaded=1; fi
-    
-    #clone_repo_if_missing "dnscan" "$dnscan_url"
-    #if [ $? -eq 1 ]; then new_tool_downloaded=1; fi
-
-    #clone_repo_if_missing "cloud_enum" "$cloud_enum_url"
-    #if [ $? -eq 1 ]; then new_tool_downloaded=1; fi
+    clone_repo_if_missing "crt.sh"
+    clone_repo_if_missing "dnscan"
+    clone_repo_if_missing "cloud_enum"
 
     # Change back to original directory
     cd -
@@ -218,8 +148,7 @@ fi
 
 # If a new tool was downloaded, then update requirements.txt and install new packages
 if [ $new_tool_downloaded -eq 1 ]; then
-    cd DayOneScans/tools  # Make sure to be in the correct directory
-    # Initialize empty combined_requirements.txt
+    cd DayOneScans/tools
     echo "" > combined_requirements.txt
     
     # Loop through all directories in the current folder (DayOneScans/tools)
@@ -248,15 +177,14 @@ if [ "$regions_flag" = true ]; then
     azure_regions_file="$tool_directory_path/azure_regions.py"
     gcp_regions_file="$tool_directory_path/gcp_regions.py"
 
-    # Step 1: Create Backup Copies
+    # Create Backup Copies
     cp "$azure_regions_file" "${azure_regions_file}.backup"
     cp "$gcp_regions_file" "${gcp_regions_file}.backup"
 
-    # Continue with your sed commands to modify the files
+
     sed -i '$d; $d; $d; $d' "$azure_regions_file"
     sed -i '$d; $d; $d; $d' "$gcp_regions_file"
 fi
-
 
 # Update and install necessary packages
 echo "Updating and installing necessary packages..."
@@ -303,7 +231,8 @@ TMUX_CONF_PATH=$(sudo find / -type f \( -name ".tmux.conf" -o -name "tmux.conf" 
 if [[ ! -z "$TMUX_CONF_PATH" ]]; then
     # Check if the required line already exists using sudo.
     if ! sudo grep -q "@retain-ansi-escapes" "$TMUX_CONF_PATH"; then
-        echo "Appending configuration to tmux.conf..."
+        echo "Appending configuration to tmux"
+
         
         # Append the required line with elevated privileges.
         echo "set -g @retain-ansi-escapes true" | sudo tee -a "$TMUX_CONF_PATH" > /dev/null
@@ -327,15 +256,35 @@ echo " "
 echo " "
 check_version
 
+# Function to validate domain format
+validate_domain() {
+    if [[ ! $1 =~ ^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+        echo "${RED}Invalid domain format. Please enter a valid domain.${NC}"
+        return 1
+    fi
+    return 0
+}
+
+# Function to process and clean emails and usernames
+process_and_clean_files() {
+    tr '[:upper:]' '[:lower:]' < "DayOneScans/$1/emails.txt" > "DayOneScans/$1/emails_lower.txt"
+    mv "DayOneScans/$1/emails_lower.txt" "DayOneScans/$1/emails.txt"
+    sort -u "DayOneScans/$1/emails.txt" -o "DayOneScans/$1/emails.txt"
+    cat "DayOneScans/$1/emails.txt" | sed -e "s/@$1//g" -e "s/www\.//g" | sort -u > "DayOneScans/$1/usernames.txt"
+    sort -u "DayOneScans/$1/usernames.txt" -o "DayOneScans/$1/usernames.txt"
+}
+
 # Prompt the user for a domain
-read -p "${ORANGE}Enter the domain (domain.com): ${NC}" domain
-echo " "
-echo " "
-# Check if the supplied domain is a directory and create it if it doesn't exist
-if [ ! -d "DayOneScans/$domain" ]; then
-    echo "Creating directory for domain: $domain"
-    mkdir -p "DayOneScans/$domain"
-fi
+while true; do
+    read -p "${ORANGE}Enter the domain (domain.com): ${NC}" domain
+    if validate_domain "$domain"; then
+        break
+    fi
+done
+
+echo -e "\nCreating directory for domain: $domain"
+mkdir -p "DayOneScans/$domain" || { echo "${RED}Failed to create directory. Exiting.${NC}"; exit 1; }
+
 
 echo " "
 echo " "
@@ -349,6 +298,7 @@ if ! is_tool_disabled "crosslinked"; then
     echo " 3. {first}{last}"
     echo " 4. {first}{l}"
     echo " 5. {first}"
+    echo " 6. {last}{f}"
     echo " "
     echo " "
     read -p "${ORANGE}Enter the option (1/2/3/4/5): ${NC}" format_option
@@ -362,6 +312,7 @@ if ! is_tool_disabled "crosslinked"; then
         3) format="{first}{last}" ;;
         4) format="{first}{l}" ;;
         5) format="{first}" ;;
+        6) format="{last}{f}" ;;
         *) echo "Invalid option. Using default format {f}{last}"; format="{f}{last}" ;;
     esac
 
@@ -411,6 +362,8 @@ tmux send-keys -t aadint_session1 "Import-Module AADInternals" C-m
 ##################################################################
 ##################################################################
 echo "Complete"
+
+
 
 # Run pymeta.py with user-provided domain
 if ! is_tool_disabled "pymeta"; then
@@ -592,6 +545,7 @@ if ! is_tool_disabled "dnscan"; then
     echo " "
     python DayOneScans/tools/dnscan/dnscan.py -d "$domain" -n -o "DayOneScans/$domain/DNSInfo" -t 50
     awk -F" - " '/ - / {print $2}' "DayOneScans/$domain/DNSInfo" > "DayOneScans/$domain/temp_dnsinfo.txt"
+    
 
     dnsrecon -d "$domain" -t std > "DayOneScans/$domain/dnsrecon.txt"
 
@@ -600,6 +554,8 @@ if ! is_tool_disabled "dnscan"; then
         grep -oP '(MX|A|TXT|SRV|NS|SOA) \K[^ ]*\.com' "DayOneScans/$domain/dnsrecon.txt" > "DayOneScans/$domain/extracted_dnsrecords.txt"
         sort -u DayOneScans/$domain/temp_dnsinfo.txt DayOneScans/$domain/extracted_dnsrecords.txt > DayOneScans/$domain/dnsrecords.txt
         rm DayOneScans/$domain/temp_dnsinfo.txt
+        sed -i 's/\x1b\[[0-9;]*m//g' "DayOneScans/$domain/dnsrecords.txt"
+
         grep -E -o "[a-zA-Z0-9.-]+\.$domain" "DayOneScans/$domain/DNSInfo" >> "DayOneScans/$domain/subdomains.txt"
     fi
 
@@ -645,6 +601,13 @@ grep -E -o '([0-9]{1,3}\.){3}[0-9]{1,3}' "DayOneScans/$domain/dnsrecon.txt" | so
 
 # Sort and remove duplicates from hosts.txt
 sort -u "DayOneScans/$domain/hosts.txt" -o "DayOneScans/$domain/hosts.txt"
+
+# Remove the IP addresses 8.8.8.8 and 8.8.1.1 from the file
+grep -v -e '8\.8\.8\.8' -e '8\.8\.1\.1' "DayOneScans/$domain/hosts.txt" > "DayOneScans/$domain/temp_hosts.txt"
+
+# Move the temporary file back to the original file
+mv "DayOneScans/$domain/temp_hosts.txt" "DayOneScans/$domain/hosts.txt"
+
 
 # Extract subdomains and create subdomains.txt
 cut -d ',' -f 1 "DayOneScans/$domain/subfindersubs" | sort -u >> "DayOneScans/$domain/subdomains.txt"
@@ -807,10 +770,14 @@ fi
 
 if [ -r "DayOneScans/$domain/squatting.csv" ]; then
     squatting_count=$(wc -l < "DayOneScans/$domain/squatting.csv")
+    if [ "$squatting_count" -gt 0 ]; then
+        ((squatting_count--))
+    fi
 else
     echo "File 'DayOneScans/$domain/squatting.csv' not found or is not readable."
     squatting_count=0
 fi
+
 
 if [ -r "DayOneScans/$domain/RegisteredDomainsSorted.txt" ]; then
     registered_domains=$(wc -l < "DayOneScans/$domain/RegisteredDomainsSorted.txt")
@@ -827,17 +794,28 @@ else
 fi
 
 if [ -r "DayOneScans/$domain/${domain}BreachData.csv" ]; then
-    breach_data_count=$(($(wc -l < "DayOneScans/$domain/${domain}BreachData.csv") - 1))
+    breach_data_count=$(wc -l < "DayOneScans/$domain/${domain}BreachData.csv")
+    if [ "$breach_data_count" -gt 0 ]; then
+        ((breach_data_count--))
+    fi
 else
     echo "File 'DayOneScans/$domain/${domain}BreachData.csv' not found or is not readable."
-    breach_data_count=0  # Set to 0 if the file doesn't exist
+    breach_data_count=0
 fi
+
 
 if [ -r "DayOneScans/$domain/metadata.csv" ]; then
     meta_count=$(wc -l < "DayOneScans/$domain/metadata.csv")
+    # Subtract one from meta_count unless it's zero
+    if [ "$meta_count" -gt 0 ]; then
+        ((meta_count--))
+    fi
 else
+    echo "File 'DayOneScans/$domain/metadata.csv' not found or is not readable."
     meta_count=0
 fi
+
+
 ###################################################################################
 #Breach Data Question
 echo " "
