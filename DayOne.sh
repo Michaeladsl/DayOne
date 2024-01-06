@@ -15,6 +15,7 @@ check_version() {
 
 regions_flag=false
 DISABLED_TOOLS=""
+surpress_updates=false
 list_tools_flag=false
 verbose_mode=false
 new_tool_downloaded=0
@@ -27,10 +28,11 @@ YELLOW=$(tput setaf 3; tput bold)
 CYAN=$(tput setaf 6)
 NC=$(tput sgr0) # No Color
 
-while getopts "D:rthv" flag; do
+while getopts "D:rthvs" flag; do
     case "$flag" in
         D) DISABLED_TOOLS="$OPTARG" ;;
         r) regions_flag=true ;;
+	s) surpress_updates=true ;;
         t) echo "Available tools that can be disabled with -D:"
            echo " 1. pymeta"
            echo " 2. cloudenum"
@@ -47,14 +49,16 @@ while getopts "D:rthv" flag; do
            echo " 13. onedrive_enum"
            echo " 14. comma-separated: pymeta,cloudenum,crosslinked,dehashed,dnscan,subfinder,crt.sh,subjack,dnstwist,DNSMap,registereddomains,AADUserEnum,onedrive_enum"
            exit 0 ;;
-        h) echo "Usage: $0 [-D <tool_name>] [-r] [-t] [-v]"
+        h) echo "Usage: $0 [-D <tool_name>] [-r] [-t] [-v] [-s] [-h]"
            echo " -D <tool_name> : Disable a specific tool (e.g., pymeta, cloudenum)"
            echo " -r             : Enable all regions in cloud_enum (slow)"
            echo " -t             : List all available tools that can be disabled"
+           echo " -s             : Surpress updates and dependencies"
            echo " -h             : Show this help message"
            echo " -v             : Verbose Mode (for error checking)"
            exit 0 ;;
-        *) echo "Usage: $0 [-D <tool_name>] [-r] [-t] [-v]"
+        *) echo "Usage: $0 [-D <tool_name>] [-r] [-t] [-v] [-s] [-h] $flag"
+           echo "$flag"
            exit 1 ;;
     esac
 done
@@ -186,25 +190,27 @@ if [ "$regions_flag" = true ]; then
     sed -i '$d; $d; $d; $d' "$gcp_regions_file"
 fi
 
-# Update and install necessary packages
-echo "Updating and installing necessary packages..."
-sudo apt update > /dev/null 2>&1
-sudo apt install -y urlcrazy > /dev/null 2>&1
-sudo apt-get install exiftool -y > /dev/null 2>&1
-sudo apt install -y figlet > /dev/null 2>&1
-sudo apt install -y dnstwist > /dev/null 2>&1
-sudo apt install -y subjack > /dev/null 2>&1
-sudo apt install -y dnsrecon > /dev/null 2>&1
-sudo apt install -y jq > /dev/null 2>&1
+if [ "$surpress_updates" = false ]; then
+    # Update and install necessary packages
+    echo "Updating and installing necessary packages..."
+    sudo apt update > /dev/null 2>&1
+    sudo apt install -y urlcrazy > /dev/null 2>&1
+    sudo apt-get install exiftool -y > /dev/null 2>&1
+    sudo apt install -y figlet > /dev/null 2>&1
+    sudo apt install -y dnstwist > /dev/null 2>&1
+    sudo apt install -y subjack > /dev/null 2>&1
+    sudo apt install -y dnsrecon > /dev/null 2>&1
+    sudo apt install -y jq > /dev/null 2>&1
 
-# Install tool dependencies
-echo "Installing tool dependencies..."
-pip3 install -r DayOneScans/tools/requirements.txt > /dev/null 2>&1
-pip3 install -r DayOneScans/tools/cloud_enum/requirements.txt > /dev/null 2>&1
+    # Install tool dependencies
+    echo "Installing tool dependencies..."
+    pip3 install -r DayOneScans/tools/requirements.txt > /dev/null 2>&1
+    pip3 install -r DayOneScans/tools/cloud_enum/requirements.txt > /dev/null 2>&1
 
-# Install Pymeta and fix errors
-sudo pip3 install pymetasec > /dev/null 2>&1
-sleep 5
+    # Install Pymeta and fix errors
+    sudo pip3 install pymetasec > /dev/null 2>&1
+    sleep 5
+fi
 
 # Run pymeta command and capture the error
 error_output=$(pymeta 2>&1)
