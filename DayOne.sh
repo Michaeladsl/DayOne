@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Creator: Michael Raines
-CURRENT_VERSION="1.6"
+CURRENT_VERSION="1.7"
 REPO_URL="https://raw.githubusercontent.com/Michaeladsl/DayOne/main/DayOne.sh"
 
 # Function to check the current version against the latest version on GitHub
@@ -28,10 +28,11 @@ YELLOW=$(tput setaf 3; tput bold)
 CYAN=$(tput setaf 6)
 NC=$(tput sgr0) # No Color
 
-while getopts "D:rthvs" flag; do
+while getopts "D:rthvsk" flag; do
     case "$flag" in
         D) DISABLED_TOOLS="$OPTARG" ;;
         r) regions_flag=true ;;
+        k) IFS=',' read -ra additional_keywords <<< "$OPTARG" ;;
 	s) surpress_updates=true ;;
         t) echo "Available tools that can be disabled with -D:"
            echo " 1. pymeta"
@@ -371,7 +372,7 @@ echo "Complete"
 
 
 
-# Run pymeta.py with user-provided domain
+# Run pymeta.py
 if ! is_tool_disabled "pymeta"; then
     echo " "
     echo " "
@@ -385,7 +386,7 @@ if ! is_tool_disabled "pymeta"; then
     pymeta -j 7 -d "$domain" -f "DayOneScans/$domain/metadata.csv" -s all
 fi
 
-# Run crosslinked.py with user-selected format and user-supplied domain or organization name
+# Run crosslinked.py
 if ! is_tool_disabled "crosslinked"; then
     echo " "
     echo " "
@@ -407,6 +408,9 @@ echo " "
 echo " "
 echo " "
 echo " "
+
+
+
 # Run dehashed.py if it exists, otherwise search for it and copy if found
 if ! is_tool_disabled "dehashed"; then
     if [ -f "DayOneScans/tools/dehashed.py" ]; then
@@ -505,16 +509,14 @@ fi
 # Run cloud_enum.py with specified parameters
 cloud_enum_keyword=$(echo $domain | cut -d "." -f "1")
 if ! is_tool_disabled "cloudenum"; then
-    echo " "
-    echo " "
-    echo " "
-    echo " "
     echo "${GREEN}========== Running cloud_enum ==========${NC}"
-    echo " "
-    echo " "
-    script -c "python DayOneScans/tools/cloud_enum/cloud_enum.py -k '$domain' -k '$cloud_enum_keyword' -t 25 -l 'DayOneScans/$domain/CloudEnum.Log' | grep -v -e '\[!\] DNS Timeout on' -e '\[!\] Connection error on' -e '^HTTPConnectionPool'" -f DayOneScans/$domain/CloudEnumFULL.txt
-
+    keyword_params=""
+    for keyword in "${additional_keywords[@]}"; do
+        keyword_params+="-k '$keyword' "
+    done
+    script -c "python DayOneScans/tools/cloud_enum/cloud_enum.py -k '$domain' -k '$cloud_enum_keyword' $keyword_params -t 25 -l 'DayOneScans/$domain/CloudEnum.Log' | grep -v -e '\[!\] DNS Timeout on' -e '\[!\] Connection error on' -e '^HTTPConnectionPool'" -f DayOneScans/$domain/CloudEnumFULL.txt
 fi
+
 
 
 # Read emails_valid.txt and extract valid usernames
@@ -719,7 +721,7 @@ if [ -n "$smtp_server" ]; then
         echo " "
         tmux new-session -d -s mail_session 'pwsh'
         sleep 4
-        tmux send-keys -t mail_session "Send-MailMessage -SmtpServer $smtp_server -To $poc_email -From test@$domain -Subject 'Test Email' -Body 'This is a test as part of the current round of testing. Please forward this to $employee_email' -BodyAsHTML" C-m
+        tmux send-keys -t mail_session "Send-MailMessage -SmtpServer $smtp_server -To $poc_email -From test@$domain -Subject 'Test Email' -Body 'This is a test email as part of the current round of testing. Please forward this to $employee_email' -BodyAsHTML" C-m
         sleep 10
         tmux capture-pane -t mail_session -e -p > "DayOneScans/$domain/DirectSend.txt"
         cat "DayOneScans/$domain/DirectSend.txt"
