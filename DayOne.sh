@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Creator: Michael Raines
-CURRENT_VERSION="1.7"
+CURRENT_VERSION="1.8"
 REPO_URL="https://raw.githubusercontent.com/Michaeladsl/DayOne/main/DayOne.sh"
 
 # Function to check the current version against the latest version on GitHub
@@ -573,6 +573,33 @@ fi
 smtp_server=$(grep -E -o '[A-Za-z0-9.-]+\.mail\.protection\.outlook\.com' "DayOneScans/$domain/DNSInfo" | grep -o -E '[A-Za-z0-9-]+\.mail\.protection\.outlook\.com')
 
 
+# Extract the domain from the user input
+domain=$(echo "$domain" | cut -d '.' -f 1)
+
+# Check if the specific MX record exists
+if grep -q -E '[A-Za-z0-9.-]+\.mail\.protection\.outlook\.com' "DayOneScans/$domain/DNSInfo"; then
+    smtp_server=$(grep -E -o '[A-Za-z0-9.-]+\.mail\.protection\.outlook\.com' "DayOneScans/$domain/DNSInfo")
+else
+    # If the MX record doesn't exist, generate the SMTP server address
+    tld=$(echo "$domain" | cut -d '.' -f 2)
+    smtp_server="${domain}-${tld}.mail.protection.outlook.com"
+fi
+
+# Later in the script, check if direct_send is enabled and proceed accordingly
+if [ "$direct_send" == "yes" ]; then
+    echo "${GREEN}========= Direct Send Vulnerability Test =========${NC}"
+    echo " "
+    echo " "
+    tmux new-session -d -s mail_session 'pwsh'
+    sleep 4
+    tmux send-keys -t mail_session "Send-MailMessage -SmtpServer $smtp_server -To $poc_email -From test@$domain -Subject 'Test Email' -Body 'This is a test as part of the current round of testing. Please forward this to $employee_email' -BodyAsHTML" C-m
+    sleep 10
+    tmux capture-pane -t mail_session -e -p > "DayOneScans/$domain/DirectSend.txt"
+    cat "DayOneScans/$domain/DirectSend.txt"
+fi
+
+
+
 # Run subfinder with specified parameters
 if ! is_tool_disabled "subfinder"; then
     echo " "
@@ -711,24 +738,6 @@ if ! is_tool_disabled "registereddomains"; then
 fi
 # Kill the TMUX session
 tmux kill-session -t aadint_session1
-
-
-if [ -n "$smtp_server" ]; then
-    # Check if the direct_send flag is set to "yes"
-    if [ "$direct_send" == "yes" ]; then
-        echo "${GREEN}========= Direct Send Vulnerability Test =========${NC}"
-        echo " "
-        echo " "
-        tmux new-session -d -s mail_session 'pwsh'
-        sleep 4
-        tmux send-keys -t mail_session "Send-MailMessage -SmtpServer $smtp_server -To $poc_email -From test@$domain -Subject 'Test Email' -Body 'This is a test email as part of the current round of testing. Please forward this to $employee_email' -BodyAsHTML" C-m
-        sleep 10
-        tmux capture-pane -t mail_session -e -p > "DayOneScans/$domain/DirectSend.txt"
-        cat "DayOneScans/$domain/DirectSend.txt"
-    fi
-else
-    echo "Not Eligible For Direct Send Attempt"
-fi
 
 
 tmux kill-session -t mail_session
