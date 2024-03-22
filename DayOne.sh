@@ -1,10 +1,13 @@
 #!/bin/bash
 
 # Creator: Michael Raines
-CURRENT_VERSION="1.8"
+CURRENT_VERSION="1.9"
 REPO_URL="https://raw.githubusercontent.com/Michaeladsl/DayOne/main/DayOne.sh"
 
-# Function to check the current version against the latest version on GitHub
+SCRIPT_DIR=$(dirname "$(realpath "$0")")
+DAY_ONE_SCANS_DIR="$SCRIPT_DIR/DayOneScans"
+TOOLS_DIR="$DAY_ONE_SCANS_DIR/tools"
+
 check_version() {
     LATEST_VERSION=$(curl -s "$REPO_URL" | grep -E '^CURRENT_VERSION="' | cut -d '"' -f 2)
     if [ "$CURRENT_VERSION" != "$LATEST_VERSION" ]; then
@@ -12,6 +15,7 @@ check_version() {
         echo "Please consider updating for new features and fixes."
     fi
 }
+
 
 regions_flag=false
 DISABLED_TOOLS=""
@@ -84,6 +88,7 @@ if [ "$verbose_mode" = true ]; then
     set -x
 fi
 
+
 # URLs for each tool
 declare -A tool_urls=(
     ["CrossLinked"]="https://github.com/m8sec/CrossLinked.git"
@@ -94,69 +99,76 @@ declare -A tool_urls=(
     ["crt_sh"]="https://github.com/az7rb/crt.sh.git"
 )
 
-# Function to clone a repository if its directory doesn't exist
-clone_repo_if_missing() {
-    local dir_name="$1"
-    local repo_url="${tool_urls[$dir_name]}"
-    if [ ! -d "$dir_name" ]; then
-        echo "Directory for tool $dir_name not found. Cloning repository..."
-        git clone "$repo_url"
-        if [ $? -ne 0 ]; then
-            echo "${RED}Git clone of $dir_name failed. Exiting...${NC}"
-            exit 1
-        fi
-        return 1 
-    fi
-    return 0
+# Function to clone a repository with retries
+clone_repo_with_retries() {
+    local repo_url="$1"
+    local repo_dir="$2"
+    local max_retries=3
+    local retry_delay=5
+    local attempt=1
+
+    while [ $attempt -le $max_retries ]; do
+        echo "Attempting to clone $repo_url into $repo_dir (Attempt $attempt/$max_retries)..."
+        git clone "$repo_url" "$repo_dir" && {
+            echo "Successfully cloned $repo_url into $repo_dir"
+            return 0
+        } || {
+            echo "Failed to clone $repo_url, retrying in $retry_delay seconds..."
+            sleep $retry_delay
+        }
+        ((attempt++))
+    done
+    echo "Failed to clone $repo_url into $repo_dir after $max_retries attempts."
+    return 1
 }
 
-# Check for the presence of DayOneScans directory
-if [ ! -d "DayOneScans" ]; then
-    echo "DayOneScans directory not found. Creating..."
-    mkdir -p DayOneScans/tools
-    cd DayOneScans/tools
-
-    # Clone repositories using the function
-    echo "Cloning required repositories..."
-    for tool in "${!tool_urls[@]}"; do
-        clone_repo_if_missing "$tool"
-    done
-
-    # Additional installation steps
-    sudo apt update && sudo apt install golang -y > /dev/null 2>&1
-
-    # Install subfinder
-    if [ -d "subfinder/v2/cmd/subfinder" ]; then
-        cd subfinder/v2/cmd/subfinder
-        go build .
-        sudo mv subfinder /usr/local/bin/
-        cd ../../../../../..
+clone_repo_if_missing() {
+    local repo_name="$1"
+    local repo_url="${tool_urls[$repo_name]}"
+    local repo_dir="$DAY_ONE_SCANS_DIR/tools/$repo_name"
+    
+    if [ ! -d "$repo_dir" ]; then
+        echo "Cloning $repo_name from $repo_url..."
+        clone_repo_with_retries "$repo_url" "$repo_dir"
+    else
+        echo "$repo_name already exists."
     fi
+}
 
-    sudo pip3 install pymetasec > /dev/null 2>&1
+mkdir -p "$TOOLS_DIR"
 
-    cd -  # Return to the original directory
+echo "Cloning required repositories..."
+for tool in "${!tool_urls[@]}"; do
+    clone_repo_if_missing "$tool"
+done
+
+sudo apt update && sudo apt install golang -y > /dev/null 2>&1
+
+SUBFINDER_DIR="$TOOLS_DIR/subfinder/v2/cmd/subfinder"
+if [ -d "$SUBFINDER_DIR" ]; then
+    (cd "$SUBFINDER_DIR" && go build . && sudo mv subfinder /usr/local/bin/)
 fi
 
-# For new tools! Check run function for newly added tools if DayOneScans already exists
-if [ -d "DayOneScans/tools" ]; then
-    cd DayOneScans/tools
+sudo pip3 install pymetasec > /dev/null 2>&1
 
-    # Check existence of newly added tools (examples)
+
+# Ensure the tools directory exists
+if [ -d "$TOOLS_DIR" ]; then
+    cd "$TOOLS_DIR"
+
     clone_repo_if_missing "crt.sh"
     clone_repo_if_missing "dnscan"
     clone_repo_if_missing "cloud_enum"
 
-    # Change back to original directory
-    cd -
+else
+    echo "$TOOLS_DIR does not exist."
 fi
 
-# If a new tool was downloaded, then update requirements.txt and install new packages
 if [ $new_tool_downloaded -eq 1 ]; then
-    cd DayOneScans/tools
+    cd "$TOOLS_DIR"
     echo "" > combined_requirements.txt
     
-    # Loop through all directories in the current folder (DayOneScans/tools)
+    # Loop through all directories in the current folder ($TOOLS_DIR)
     for dir in ./*; do
         if [ -d "$dir" ]; then
             # If the directory contains a requirements.txt, append it to the combined file
@@ -173,50 +185,36 @@ if [ $new_tool_downloaded -eq 1 ]; then
     
     # Install required Python packages
     pip install -r combined_requirements.txt
-    cd -  # Change back to original directory
 fi
 
-# Modify azure_regions.py and gcp_regions.py
 if [ "$regions_flag" = true ]; then
-    tool_directory_path="DayOneScans/tools/cloud_enum/enum_tools"
-    azure_regions_file="$tool_directory_path/azure_regions.py"
-    gcp_regions_file="$tool_directory_path/gcp_regions.py"
+    azure_regions_file="$TOOLS_DIR/cloud_enum/enum_tools/azure_regions.py"
+    gcp_regions_file="$TOOLS_DIR/cloud_enum/enum_tools/gcp_regions.py"
 
-    # Create Backup Copies
     cp "$azure_regions_file" "${azure_regions_file}.backup"
     cp "$gcp_regions_file" "${gcp_regions_file}.backup"
-
 
     sed -i '$d; $d; $d; $d' "$azure_regions_file"
     sed -i '$d; $d; $d; $d' "$gcp_regions_file"
 fi
 
 if [ "$surpress_updates" = false ]; then
-    # Update and install necessary packages
     echo "Updating and installing necessary packages..."
     sudo apt update > /dev/null 2>&1
-    sudo apt install -y urlcrazy > /dev/null 2>&1
-    sudo apt-get install exiftool -y > /dev/null 2>&1
-    sudo apt install -y figlet > /dev/null 2>&1
-    sudo apt install -y dnstwist > /dev/null 2>&1
-    sudo apt install -y subjack > /dev/null 2>&1
-    sudo apt install -y dnsrecon > /dev/null 2>&1
-    sudo apt install -y jq > /dev/null 2>&1
+    sudo apt install -y urlcrazy exiftool figlet dnstwist subjack dnsrecon jq > /dev/null 2>&1
 
-    # Install tool dependencies
+    # Install tool dependencies using pip
     echo "Installing tool dependencies..."
-    pip3 install -r DayOneScans/tools/requirements.txt > /dev/null 2>&1
-    pip3 install -r DayOneScans/tools/cloud_enum/requirements.txt > /dev/null 2>&1
+    pip3 install -r "$TOOLS_DIR/requirements.txt" > /dev/null 2>&1
+    pip3 install -r "$TOOLS_DIR/cloud_enum/requirements.txt" > /dev/null 2>&1
 
     # Install Pymeta and fix errors
     sudo pip3 install pymetasec > /dev/null 2>&1
     sleep 5
 fi
 
-# Run pymeta command and capture the error
 error_output=$(pymeta 2>&1)
 
-# Extract the file path from the error output
 file_path=$(echo "$error_output" | grep -o 'File ".*__init__.py"' | awk -F'"' '{print $2}')
 
 # Check if file_path starts with /.local and prepend ~ if it does
@@ -224,7 +222,6 @@ if [[ "$file_path" == /.local* ]]; then
     file_path="~$file_path"
 fi
 
-# Check if file_path has been set and if it's not empty
 if [[ -n "$file_path" ]]; then
     # Modify the problematic file
     sudo sed -i '140s/^[[:space:]]*//' "$file_path"
@@ -236,7 +233,6 @@ TMUX_CONF_PATH=$(sudo find / -type f \( -name ".tmux.conf" -o -name "tmux.conf" 
 
 # Check if the file was found.
 if [[ ! -z "$TMUX_CONF_PATH" ]]; then
-    # Check if the required line already exists using sudo.
     if ! sudo grep -q "@retain-ansi-escapes" "$TMUX_CONF_PATH"; then
         echo "Appending configuration to tmux"
 
@@ -263,7 +259,6 @@ echo " "
 echo " "
 check_version
 
-# Function to validate domain format
 validate_domain() {
     if [[ ! $1 =~ ^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
         echo "${RED}Invalid domain format. Please enter a valid domain.${NC}"
@@ -272,16 +267,23 @@ validate_domain() {
     return 0
 }
 
-# Function to process and clean emails and usernames
 process_and_clean_files() {
-    tr '[:upper:]' '[:lower:]' < "DayOneScans/$1/emails.txt" > "DayOneScans/$1/emails_lower.txt"
-    mv "DayOneScans/$1/emails_lower.txt" "DayOneScans/$1/emails.txt"
-    sort -u "DayOneScans/$1/emails.txt" -o "DayOneScans/$1/emails.txt"
-    cat "DayOneScans/$1/emails.txt" | sed -e "s/@$1//g" -e "s/www\.//g" | sort -u > "DayOneScans/$1/usernames.txt"
-    sort -u "DayOneScans/$1/usernames.txt" -o "DayOneScans/$1/usernames.txt"
+    local domain_dir="$DAY_ONE_SCANS_DIR/$1"
+    tr '[:upper:]' '[:lower:]' < "$domain_dir/emails.txt" > "$domain_dir/emails_lower.txt"
+    mv "$domain_dir/emails_lower.txt" "$domain_dir/emails.txt"
+    sort -u "$domain_dir/emails.txt" -o "$domain_dir/emails.txt"
+    cat "$domain_dir/emails.txt" | sed -e "s/@$1//g" -e "s/www\.//g" | sort -u > "$domain_dir/usernames.txt"
+    sort -u "$domain_dir/usernames.txt" -o "$domain_dir/usernames.txt"
 }
 
-# Prompt the user for a domain
+validate_domain() {
+    if [[ ! $1 =~ ^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+        echo "${RED}Invalid domain format. Please enter a valid domain.${NC}"
+        return 1
+    fi
+    return 0
+}
+
 while true; do
     read -p "${ORANGE}Enter the domain (domain.com): ${NC}" domain
     if validate_domain "$domain"; then
@@ -290,15 +292,14 @@ while true; do
 done
 
 echo -e "\nCreating directory for domain: $domain"
-mkdir -p "DayOneScans/$domain" || { echo "${RED}Failed to create directory. Exiting.${NC}"; exit 1; }
-
+mkdir -p "$DAY_ONE_SCANS_DIR/$domain" || { echo "${RED}Failed to create directory. Exiting.${NC}"; exit 1; }
 
 echo " "
 echo " "
+
 
 if ! is_tool_disabled "crosslinked"; then
 
-    # Prompt the user to choose a format for {f}{last}
     echo " ${ORANGE}=========== Choose a format for {f}{last}: ===========${NC}"
     echo " 1. {f}{last}"
     echo " 2. {first}.{last}"
@@ -312,7 +313,6 @@ if ! is_tool_disabled "crosslinked"; then
     echo " "
     echo " "
 
-    # Determine the format based on the user's choice
     case $format_option in
         1) format="{f}{last}" ;;
         2) format="{first}.{last}" ;;
@@ -328,7 +328,6 @@ if ! is_tool_disabled "crosslinked"; then
     echo " "
     echo " "
 
-    # Prompt the user for the organization name as it appears on LinkedIn or use the domain
     read -p "${ORANGE}Enter the organization name as it appears on${NC} ${RED}LinkedIn${NC} ${ORANGE}or re-enter the domain:${NC} " org_name
     echo " "
     echo " "
@@ -339,7 +338,6 @@ echo " "
 echo " "
 direct_send=$(echo "$direct_send" | tr '[:upper:]' '[:lower:]')
 
-# Check if the user wants to attempt direct send vulnerability
 if [ "$direct_send" == "yes" ]; then
     read -p "${ORANGE}Enter your targets email typically (POC): ${NC}" poc_email
     echo " "
@@ -352,14 +350,12 @@ echo " "
 echo " "
 echo " "
 
-# Prompt the user for permission to test cloud environments
 read -p "${ORANGE}Do you have permission to test cloud environments (AADUserEnum)?${NC}(${GREEN}YES${NC}/${RED}NO${NC})${YELLOW}:${NC} " permission
 echo " "
 echo " "
 echo " "
 echo " "
 echo "${GREEN}=========== Inputing Data ===========${NC}"
-# Install and Import AADInternals
 tmux new-session -d -s aadint_session1 'pwsh'
 tmux send-keys -t aadint_session1 "Install-Module AADInternals" C-m
 sleep 8
@@ -375,100 +371,76 @@ echo "Complete"
 # Run pymeta.py
 if ! is_tool_disabled "pymeta"; then
     echo " "
-    echo " "
-    echo " "
-    echo " "
-    echo " "
-    echo " "
     echo "${GREEN}========== Running Pymeta ==========${NC}"
     echo " "
-    echo " "
-    pymeta -j 7 -d "$domain" -f "DayOneScans/$domain/metadata.csv" -s all
+    pymeta -j 7 -d "$domain" -f "$DAY_ONE_SCANS_DIR/$domain/metadata.csv" -s all
 fi
 
 # Run crosslinked.py
 if ! is_tool_disabled "crosslinked"; then
     echo " "
-    echo " "
-    echo " "
-    echo " "
     echo "${GREEN}========== Running Crosslinked ==========${NC}"
     echo " "
-    echo " "
-    python DayOneScans/tools/CrossLinked/crosslinked.py -j 7 -f "${format}@${domain}" "$org_name" -o "DayOneScans/$domain/emails"
-
+    python "$DAY_ONE_SCANS_DIR/tools/CrossLinked/crosslinked.py" -j 7 -f "${format}@${domain}" "$org_name" -o "$DAY_ONE_SCANS_DIR/$domain/emails"
 
     echo " "
     echo "Processing and cleaning up emails.txt..."
-    cat "DayOneScans/$domain/emails.txt" | tr '[:upper:]' '[:lower:]' | sort -u > "DayOneScans/$domain/emails_tmp.txt"
-    mv "DayOneScans/$domain/emails_tmp.txt" "DayOneScans/$domain/emails.txt"
-    cat "DayOneScans/$domain/emails.txt" | sed "s/@$domain//g" | sort -u > "DayOneScans/$domain/usernames.txt"
+    cat "$DAY_ONE_SCANS_DIR/$domain/emails.txt" | tr '[:upper:]' '[:lower:]' | sort -u > "$DAY_ONE_SCANS_DIR/$domain/emails_tmp.txt"
+    mv "$DAY_ONE_SCANS_DIR/$domain/emails_tmp.txt" "$DAY_ONE_SCANS_DIR/$domain/emails.txt"
+    cat "$DAY_ONE_SCANS_DIR/$domain/emails.txt" | sed "s/@$domain//g" | sort -u > "$DAY_ONE_SCANS_DIR/$domain/usernames.txt"
 fi
 echo " "
 echo " "
 echo " "
-echo " "
 
-
-
-# Run dehashed.py if it exists, otherwise search for it and copy if found
+# Run dehashed.py if it exists
 if ! is_tool_disabled "dehashed"; then
-    if [ -f "DayOneScans/tools/dehashed.py" ]; then
-        echo " "
+    if [ -f "$DAY_ONE_SCANS_DIR/tools/dehashed.py" ]; then
         echo " "
         echo "${GREEN}========== Running Dehashed ==========${NC}"
-        python3 DayOneScans/tools/dehashed.py -d "$domain" -o "DayOneScans/$domain/${domain}BreachData.csv"
+        python3 "$DAY_ONE_SCANS_DIR/tools/dehashed.py" -d "$domain" -o "$DAY_ONE_SCANS_DIR/$domain/${domain}BreachData.csv"
     else
         echo " "
-        find ~/ -name "dehashed.py" -exec cp {} DayOneScans/tools/dehashed.py \; 2>/dev/null;
-        if [ -f "DayOneScans/tools/dehashed.py" ]; then
+        find ~/ -name "dehashed.py" -exec cp {} "$DAY_ONE_SCANS_DIR/tools/dehashed.py" \; 2>/dev/null;
+        if [ -f "$DAY_ONE_SCANS_DIR/tools/dehashed.py" ]; then
             echo "${GREEN}========== Running Dehashed ==========${NC}"
-            python3 DayOneScans/tools/dehashed.py -d "$domain" -o "DayOneScans/$domain/${domain}BreachData.csv"
+            python3 "$DAY_ONE_SCANS_DIR/tools/dehashed.py" -d "$domain" -o "$DAY_ONE_SCANS_DIR/$domain/${domain}BreachData.csv"
         else
-            cat "DayOneScans/$domain/emails.txt" | sed "s/@$domain//g" | sort -u > "DayOneScans/$domain/usernames_tmp.txt"
-            mv "DayOneScans/$domain/usernames_tmp.txt" "DayOneScans/$domain/usernames.txt"
             echo "${RED}(dehashed.py not found. Moving on to the next script.)${NC}"
         fi
     fi
 fi
 
+echo " "
 
-echo " "
-echo " "
 # Extract email addresses from domainBreachData.csv and append to emails.txt
-if [ -f "DayOneScans/$domain/${domain}BreachData.csv" ]; then
+if [ -f "$DAY_ONE_SCANS_DIR/$domain/${domain}BreachData.csv" ]; then
     echo "${YELLOW}Extracting email addresses from domainBreachData.csv...${NC}"
-    grep -E -o '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}' "DayOneScans/$domain/${domain}BreachData.csv" | grep -v "^[0-9]" | sort -u >> "DayOneScans/$domain/emails.txt"
-    tr '[:upper:]' '[:lower:]' < "DayOneScans/$domain/emails.txt" > "DayOneScans/$domain/emails_lower.txt"
-    mv "DayOneScans/$domain/emails_lower.txt" "DayOneScans/$domain/emails.txt"
-    sort -u "DayOneScans/$domain/emails.txt" -o "DayOneScans/$domain/emails.txt"
-    cat "DayOneScans/$domain/emails.txt" | sed -e "s/@$domain//g" -e "s/www\.//g" | sort -u > "DayOneScans/$domain/usernames.txt"
-    sort -u "DayOneScans/$domain/usernames.txt" -o "DayOneScans/$domain/usernames.txt"
+    grep -E -o '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}' "$DAY_ONE_SCANS_DIR/$domain/${domain}BreachData.csv" | grep -v "^[0-9]" | sort -u >> "$DAY_ONE_SCANS_DIR/$domain/emails.txt"
+    tr '[:upper:]' '[:lower:]' < "$DAY_ONE_SCANS_DIR/$domain/emails.txt" > "$DAY_ONE_SCANS_DIR/$domain/emails_lower.txt"
+    mv "$DAY_ONE_SCANS_DIR/$domain/emails_lower.txt" "$DAY_ONE_SCANS_DIR/$domain/emails.txt"
+    sort -u "$DAY_ONE_SCANS_DIR/$domain/emails.txt" -o "$DAY_ONE_SCANS_DIR/$domain/emails.txt"
+    cat "$DAY_ONE_SCANS_DIR/$domain/emails.txt" | sed -e "s/@$domain//g" -e "s/www\.//g" | sort -u > "$DAY_ONE_SCANS_DIR/$domain/usernames.txt"
+    sort -u "$DAY_ONE_SCANS_DIR/$domain/usernames.txt" -o "$DAY_ONE_SCANS_DIR/$domain/usernames.txt"
 fi
 
-if [ -f "DayOneScans/$domain/usernames.txt" ]; then
-    tr '[:upper:]' '[:lower:]' < "DayOneScans/$domain/usernames.txt" > "DayOneScans/$domain/usernames_lower.txt"
-    mv "DayOneScans/$domain/usernames_lower.txt" "DayOneScans/$domain/usernames.txt"
-    sort -u "DayOneScans/$domain/usernames.txt" -o "DayOneScans/$domain/usernames.txt"
-    sed -e 's/@.*//' -e 's/www\.//' "DayOneScans/$domain/usernames.txt" > "DayOneScans/$domain/cleaned_usernames.txt"
-    mv "DayOneScans/$domain/cleaned_usernames.txt" "DayOneScans/$domain/usernames.txt"
-    sort -u "DayOneScans/$domain/usernames.txt" -o "DayOneScans/$domain/usernames.txt"
-    
+
+if [ -f "$DAY_ONE_SCANS_DIR/$domain/usernames.txt" ]; then
+    tr '[:upper:]' '[:lower:]' < "$DAY_ONE_SCANS_DIR/$domain/usernames.txt" > "$DAY_ONE_SCANS_DIR/$domain/usernames_lower.txt"
+    mv "$DAY_ONE_SCANS_DIR/$domain/usernames_lower.txt" "$DAY_ONE_SCANS_DIR/$domain/usernames.txt"
+    sort -u "$DAY_ONE_SCANS_DIR/$domain/usernames.txt" -o "$DAY_ONE_SCANS_DIR/$domain/usernames.txt"
+    sed -e 's/@.*//' -e 's/www\.//' "$DAY_ONE_SCANS_DIR/$domain/usernames.txt" > "$DAY_ONE_SCANS_DIR/$domain/cleaned_usernames.txt"
+    mv "$DAY_ONE_SCANS_DIR/$domain/cleaned_usernames.txt" "$DAY_ONE_SCANS_DIR/$domain/usernames.txt"
+    sort -u "$DAY_ONE_SCANS_DIR/$domain/usernames.txt" -o "$DAY_ONE_SCANS_DIR/$domain/usernames.txt"
 fi
 
-if [ -f "DayOneScans/$domain/usernames.txt" ]; then
-    # Append usernames with "@domain" to emails.txt
+if [ -f "$DAY_ONE_SCANS_DIR/$domain/usernames.txt" ]; then
     while read username; do
         echo "${username}@$domain"
-    done < "DayOneScans/$domain/usernames.txt" >> "DayOneScans/$domain/emails.txt"
-
-    # Remove duplicates from emails.txt
-    sort -u "DayOneScans/$domain/emails.txt" -o "DayOneScans/$domain/emails.txt"
+    done < "$DAY_ONE_SCANS_DIR/$domain/usernames.txt" >> "$DAY_ONE_SCANS_DIR/$domain/emails.txt"
+    sort -u "$DAY_ONE_SCANS_DIR/$domain/emails.txt" -o "$DAY_ONE_SCANS_DIR/$domain/emails.txt"
 fi
 
-
-# Determine the directory of the script
-SCRIPTDIR=$(dirname "$(realpath "$0")")
 
 # Run onedrive_enum.py with user-supplied domain and usernames.txt
 if ! is_tool_disabled "onedrive_enum"; then
@@ -477,68 +449,49 @@ if ! is_tool_disabled "onedrive_enum"; then
     echo "${GREEN}========== Finding Valid User Accounts ==========${NC}"
     echo " "
     echo " "
-    cd DayOneScans/tools/onedrive_user_enum
-    python onedrive_enum.py -d "$domain" -U $SCRIPTDIR/DayOneScans/$domain/usernames.txt -r
-    mv emails* $SCRIPTDIR/DayOneScans/$domain/emails_valid.txt
+    cd "$TOOLS_DIR/onedrive_user_enum"
+    python onedrive_enum.py -d "$domain" -U "$DAY_ONE_SCANS_DIR/$domain/usernames.txt" -r
+    mv emails* "$DAY_ONE_SCANS_DIR/$domain/emails_valid.txt"
     cd - > /dev/null
 fi
 
-sort -u DayOneScans/$domain/emails_valid.txt -o DayOneScans/$domain/emails_valid.txt
+sort -u "$DAY_ONE_SCANS_DIR/$domain/emails_valid.txt" -o "$DAY_ONE_SCANS_DIR/$domain/emails_valid.txt"
 
-permission=$(echo "$permission" | tr '[:upper:]' '[:lower:]')
-
-# Check if permission is granted
-if [ "$permission" == "yes" ]; then
-    # Send the PowerShell command to the TMUX session
-    if ! is_tool_disabled "AADUserEnum"; then
-        tmux send-keys -t aadint_session1 "Get-Content DayOneScans/$domain/emails.txt | Invoke-AADIntUserEnumerationAsOutsider | Export-Csv -Path DayOneScans/$domain/AADuserenum.txt -NoTypeInformation" C-m
-    
-        # Wait for the command to finish (you can adjust the sleep time as needed)
-        sleep 20
-
-        echo " "
-        echo " "
-    fi
+# Check if permission is granted for AADUserEnum
+if [ "$permission" == "yes" ] && ! is_tool_disabled "AADUserEnum"; then
+    tmux send-keys -t aadint_session1 "Get-Content $DAY_ONE_SCANS_DIR/$domain/emails.txt | Invoke-AADIntUserEnumerationAsOutsider | Export-Csv -Path $DAY_ONE_SCANS_DIR/$domain/AADuserenum.txt -NoTypeInformation" C-m
+    sleep 20
+    echo " "
+    echo " "
 else
     echo " "
     echo " "
     echo "${RED}(Skipping user enumeration, permission was not granted.)${NC}"
 fi
 
-
 # Run cloud_enum.py with specified parameters
-cloud_enum_keyword=$(echo $domain | cut -d "." -f "1")
 if ! is_tool_disabled "cloudenum"; then
     echo "${GREEN}========== Running cloud_enum ==========${NC}"
     keyword_params=""
     for keyword in "${additional_keywords[@]}"; do
         keyword_params+="-k '$keyword' "
     done
-    script -c "python DayOneScans/tools/cloud_enum/cloud_enum.py -k '$domain' -k '$cloud_enum_keyword' $keyword_params -t 25 -l 'DayOneScans/$domain/CloudEnum.Log' | grep -v -e '\[!\] DNS Timeout on' -e '\[!\] Connection error on' -e '^HTTPConnectionPool'" -f DayOneScans/$domain/CloudEnumFULL.txt
+    script -c "python $TOOLS_DIR/cloud_enum/cloud_enum.py -k '$domain' -k '$cloud_enum_keyword' $keyword_params -t 25 -l '$DAY_ONE_SCANS_DIR/$domain/CloudEnum.Log' | grep -v -e '\[!\] DNS Timeout on' -e '\[!\] Connection error on' -e '^HTTPConnectionPool'" -f "$DAY_ONE_SCANS_DIR/$domain/CloudEnumFULL.txt"
 fi
 
-
-
-# Read emails_valid.txt and extract valid usernames
-if [ -f "DayOneScans/$domain/emails_valid.txt" ]; then
-    sort -u DayOneScans/$domain/emails_valid.txt -o DayOneScans/$domain/emails_valid.txt
-    sed "s/@${domain}//" "DayOneScans/$domain/emails_valid.txt" > "DayOneScans/$domain/validusers.txt"
+# Process validated emails and usernames
+if [ -f "$DAY_ONE_SCANS_DIR/$domain/emails_valid.txt" ]; then
+    sort -u "$DAY_ONE_SCANS_DIR/$domain/emails_valid.txt" -o "$DAY_ONE_SCANS_DIR/$domain/emails_valid.txt"
+    sed "s/@${domain}//" "$DAY_ONE_SCANS_DIR/$domain/emails_valid.txt" > "$DAY_ONE_SCANS_DIR/$domain/validusers.txt"
 fi
 
-# Read AADuserenum.txt and extract valid usernames
-if [ -f "DayOneScans/$domain/AADuserenum.txt" ]; then
-    awk -F',' '$2 ~ /"True"/ { gsub(/"/, "", $1); print $1 }' "DayOneScans/$domain/AADuserenum.txt" >> "DayOneScans/$domain/validusers.txt"
-    awk -F'@' '{print $1}' "DayOneScans/$domain/validusers.txt" | sort > "DayOneScans/$domain/temp.txt" && mv "DayOneScans/$domain/temp.txt" "DayOneScans/$domain/validusers.txt"
-
+if [ -f "$DAY_ONE_SCANS_DIR/$domain/AADuserenum.txt" ]; then
+    awk -F',' '$2 ~ /"True"/ { gsub(/"/, "", $1); print $1 }' "$DAY_ONE_SCANS_DIR/$domain/AADuserenum.txt" >> "$DAY_ONE_SCANS_DIR/$domain/validusers.txt"
+    awk -F'@' '{print $1}' "$DAY_ONE_SCANS_DIR/$domain/validusers.txt" | sort > "$DAY_ONE_SCANS_DIR/$domain/temp.txt" && mv "$DAY_ONE_SCANS_DIR/$domain/temp.txt" "$DAY_ONE_SCANS_DIR/$domain/validusers.txt"
+    sed -i "s/@$domain//g" "$DAY_ONE_SCANS_DIR/$domain/validusers.txt"
+    sort -u "$DAY_ONE_SCANS_DIR/$domain/validusers.txt" -o "$DAY_ONE_SCANS_DIR/$domain/validusers.txt"
 fi
 
-# Remove domain from usernames and sort
-if [ -f "DayOneScans/$domain/validusers.txt" ]; then
-    sed -i "s/@$domain//g" "DayOneScans/$domain/validusers.txt"
-    sort -u "DayOneScans/$domain/validusers.txt" -o "DayOneScans/$domain/validusers.txt"
-    echo " "
-    echo " "
-fi
 
 
 
@@ -551,51 +504,44 @@ if ! is_tool_disabled "dnscan"; then
     echo "${GREEN}========== Gathering DNS Info ==========${NC}"
     echo " "
     echo " "
-    python DayOneScans/tools/dnscan/dnscan.py -d "$domain" -n -o "DayOneScans/$domain/DNSInfo" -t 50
-    awk -F" - " '/ - / {print $2}' "DayOneScans/$domain/DNSInfo" > "DayOneScans/$domain/temp_dnsinfo.txt"
+    python $TOOLS_DIR/dnscan/dnscan.py -d "$domain" -n -o "$DAY_ONE_SCANS_DIR/$domain/DNSInfo" -t 50
+    awk -F" - " '/ - / {print $2}' "$DAY_ONE_SCANS_DIR/$domain/DNSInfo" > "$DAY_ONE_SCANS_DIR/$domain/temp_dnsinfo.txt"
     
 
-    dnsrecon -d "$domain" -t std > "DayOneScans/$domain/dnsrecon.txt"
+    dnsrecon -d "$domain" -t std > "$DAY_ONE_SCANS_DIR/$domain/dnsrecon.txt"
 
     # Check if the file 'dnsrecon.txt' exists and is readable
-    if [ -r "DayOneScans/$domain/dnsrecon.txt" ]; then
-        grep -oP '(MX|A|TXT|SRV|NS|SOA) \K[^ ]*\.com' "DayOneScans/$domain/dnsrecon.txt" > "DayOneScans/$domain/extracted_dnsrecords.txt"
-        sort -u DayOneScans/$domain/temp_dnsinfo.txt DayOneScans/$domain/extracted_dnsrecords.txt > DayOneScans/$domain/dnsrecords.txt
-        rm DayOneScans/$domain/temp_dnsinfo.txt
-        sed -i 's/\x1b\[[0-9;]*m//g' "DayOneScans/$domain/dnsrecords.txt"
+    if [ -r "$DAY_ONE_SCANS_DIR/$domain/dnsrecon.txt" ]; then
+        grep -oP '(MX|A|TXT|SRV|NS|SOA) \K[^ ]*\.com' "$DAY_ONE_SCANS_DIR/$domain/dnsrecon.txt" > "$DAY_ONE_SCANS_DIR/$domain/extracted_dnsrecords.txt"
+        sort -u $DAY_ONE_SCANS_DIR/$domain/temp_dnsinfo.txt $DAY_ONE_SCANS_DIR/$domain/extracted_dnsrecords.txt > $DAY_ONE_SCANS_DIR/$domain/dnsrecords.txt
+        rm $DAY_ONE_SCANS_DIR/$domain/temp_dnsinfo.txt
+        sed -i 's/\x1b\[[0-9;]*m//g' "$DAY_ONE_SCANS_DIR/$domain/dnsrecords.txt"
 
-        grep -E -o "[a-zA-Z0-9.-]+\.$domain" "DayOneScans/$domain/DNSInfo" >> "DayOneScans/$domain/subdomains.txt"
+        grep -E -o "[a-zA-Z0-9.-]+\.$domain" "$DAY_ONE_SCANS_DIR/$domain/DNSInfo" >> "$DAY_ONE_SCANS_DIR/$domain/subdomains.txt"
     fi
 
 fi
 
-# Extracting email for direct send attempt
-smtp_server=$(grep -E -o '[A-Za-z0-9.-]+\.mail\.protection\.outlook\.com' "DayOneScans/$domain/DNSInfo" | grep -o -E '[A-Za-z0-9-]+\.mail\.protection\.outlook\.com')
+smtp_server=$(grep -E -o '[A-Za-z0-9.-]+\.mail\.protection\.outlook\.com' "$DAY_ONE_SCANS_DIR/$domain/DNSInfo" | grep -o -E '[A-Za-z0-9-]+\.mail\.protection\.outlook\.com')
 
 
-# Extract the domain from the user input
-domain=$(echo "$domain" | cut -d '.' -f 1)
-
-# Check if the specific MX record exists
-if grep -q -E '[A-Za-z0-9.-]+\.mail\.protection\.outlook\.com' "DayOneScans/$domain/DNSInfo"; then
-    smtp_server=$(grep -E -o '[A-Za-z0-9.-]+\.mail\.protection\.outlook\.com' "DayOneScans/$domain/DNSInfo")
+if grep -q -E '[A-Za-z0-9.-]+\.mail\.protection\.outlook\.com' "$DAY_ONE_SCANS_DIR/$domain/DNSInfo"; then
+    smtp_server=$(grep -E -o '[A-Za-z0-9.-]+\.mail\.protection\.outlook\.com' "$DAY_ONE_SCANS_DIR/$domain/DNSInfo")
 else
-    # If the MX record doesn't exist, generate the SMTP server address
-    tld=$(echo "$domain" | cut -d '.' -f 2)
-    smtp_server="${domain}-${tld}.mail.protection.outlook.com"
+    # Replace dots with hyphens for the domain part before the TLD
+    formatted_domain=$(echo "$domain" | sed 's/\./-/g')
+    smtp_server="${formatted_domain}.mail.protection.outlook.com"
 fi
 
-# Later in the script, check if direct_send is enabled and proceed accordingly
 if [ "$direct_send" == "yes" ]; then
     echo "${GREEN}========= Direct Send Vulnerability Test =========${NC}"
-    echo " "
     echo " "
     tmux new-session -d -s mail_session 'pwsh'
     sleep 4
     tmux send-keys -t mail_session "Send-MailMessage -SmtpServer $smtp_server -To $poc_email -From test@$domain -Subject 'Test Email' -Body 'This is a test as part of the current round of testing. Please forward this to $employee_email' -BodyAsHTML" C-m
     sleep 10
-    tmux capture-pane -t mail_session -e -p > "DayOneScans/$domain/DirectSend.txt"
-    cat "DayOneScans/$domain/DirectSend.txt"
+    tmux capture-pane -t mail_session -e -p > "$DAY_ONE_SCANS_DIR/$domain/DirectSend.txt"
+    cat "$DAY_ONE_SCANS_DIR/$domain/DirectSend.txt"
 fi
 
 
@@ -609,8 +555,8 @@ if ! is_tool_disabled "subfinder"; then
     echo "${GREEN}========== Looking for Subdomains ==========${NC}"
     echo " "
     echo " "
-    subfinder -d "$domain" -all -oI -active -o "DayOneScans/$domain/subfindersubs"
-    grep -E -o '([0-9]{1,3}\.){3}[0-9]{1,3}' "DayOneScans/$domain/subfindersubs" | sort -u > "DayOneScans/$domain/hosts.txt"
+    subfinder -d "$domain" -all -oI -active -o "$DAY_ONE_SCANS_DIR/$domain/subfindersubs"
+    grep -E -o '([0-9]{1,3}\.){3}[0-9]{1,3}' "$DAY_ONE_SCANS_DIR/$domain/subfindersubs" | sort -u > "$DAY_ONE_SCANS_DIR/$domain/hosts.txt"
 fi
 
 if ! is_tool_disabled "crt.sh"; then
@@ -620,35 +566,35 @@ if ! is_tool_disabled "crt.sh"; then
     echo " "
     echo " "
     echo " "
-    cd DayOneScans/tools/crt.sh
+    cd $TOOLS_DIR/crt_sh/crt.sh
     chmod +x crt.sh
     ./crt.sh -d $domain
     cd -
-    mv DayOneScans/tools/crt.sh/output/domain.$domain.txt DayOneScans/$domain/crtsubdomains.txt
+    mv $TOOLS_DIR/crt_sh/crt.sh/output/domain.$domain.txt $DAY_ONE_SCANS_DIR/$domain/crtsubdomains.txt
 fi
 
-cat "DayOneScans/$domain/crtsubdomains.txt" >> "DayOneScans/$domain/subdomains.txt"
+cat "$DAY_ONE_SCANS_DIR/$domain/crtsubdomains.txt" >> "$DAY_ONE_SCANS_DIR/$domain/subdomains.txt"
 
 # Extract IPs from DNSInfo and append to hosts.txt
-grep -E -o '([0-9]{1,3}\.){3}[0-9]{1,3}' "DayOneScans/$domain/DNSInfo" | sort -u >> "DayOneScans/$domain/hosts.txt"
-grep -E -o '([0-9]{1,3}\.){3}[0-9]{1,3}' "DayOneScans/$domain/dnsrecon.txt" | sort -u >> "DayOneScans/$domain/hosts.txt"
+grep -E -o '([0-9]{1,3}\.){3}[0-9]{1,3}' "$DAY_ONE_SCANS_DIR/$domain/DNSInfo" | sort -u >> "$DAY_ONE_SCANS_DIR/$domain/hosts.txt"
+grep -E -o '([0-9]{1,3}\.){3}[0-9]{1,3}' "$DAY_ONE_SCANS_DIR/$domain/dnsrecon.txt" | sort -u >> "$DAY_ONE_SCANS_DIR/$domain/hosts.txt"
 
 
 # Sort and remove duplicates from hosts.txt
-sort -u "DayOneScans/$domain/hosts.txt" -o "DayOneScans/$domain/hosts.txt"
+sort -u "$DAY_ONE_SCANS_DIR/$domain/hosts.txt" -o "$DAY_ONE_SCANS_DIR/$domain/hosts.txt"
 
 # Remove the IP addresses 8.8.8.8 and 8.8.1.1 from the file
-grep -v -e '8\.8\.8\.8' -e '8\.8\.1\.1' "DayOneScans/$domain/hosts.txt" > "DayOneScans/$domain/temp_hosts.txt"
+grep -v -e '8\.8\.8\.8' -e '8\.8\.1\.1' "$DAY_ONE_SCANS_DIR/$domain/hosts.txt" > "$DAY_ONE_SCANS_DIR/$domain/temp_hosts.txt"
 
 # Move the temporary file back to the original file
-mv "DayOneScans/$domain/temp_hosts.txt" "DayOneScans/$domain/hosts.txt"
+mv "$DAY_ONE_SCANS_DIR/$domain/temp_hosts.txt" "$DAY_ONE_SCANS_DIR/$domain/hosts.txt"
 
 
 # Extract subdomains and create subdomains.txt
-cut -d ',' -f 1 "DayOneScans/$domain/subfindersubs" | sort -u >> "DayOneScans/$domain/subdomains.txt"
+cut -d ',' -f 1 "$DAY_ONE_SCANS_DIR/$domain/subfindersubs" | sort -u >> "$DAY_ONE_SCANS_DIR/$domain/subdomains.txt"
 
 # Sort and remove duplicates from subdomains.txt
-sort -u "DayOneScans/$domain/subdomains.txt" -o "DayOneScans/$domain/subdomains.txt"
+sort -u "$DAY_ONE_SCANS_DIR/$domain/subdomains.txt" -o "$DAY_ONE_SCANS_DIR/$domain/subdomains.txt"
 
 # Check Subdomain Takeover
 if ! is_tool_disabled "subjack"; then
@@ -659,13 +605,13 @@ if ! is_tool_disabled "subjack"; then
     echo "${GREEN}========== Checking For Subdomain Takeover ==========${NC}"
     echo " "
     echo " "
-    subjack -w "DayOneScans/$domain/subdomains.txt" -t 100 -timeout 30 -o "DayOneScans/$domain/subtakeover.txt" -ssl -m -c /usr/share/subjack/fingerprints.json -v 1 >/dev/null 2>&1
+    subjack -w "$DAY_ONE_SCANS_DIR/$domain/subdomains.txt" -t 100 -timeout 30 -o "$DAY_ONE_SCANS_DIR/$domain/subtakeover.txt" -ssl -m -c /usr/share/subjack/fingerprints.json -v 1 >/dev/null 2>&1
 
     # Display the first 10 lines of subtakeover.txt
-    head -n 10 "DayOneScans/$domain/subtakeover.txt"
+    head -n 10 "$DAY_ONE_SCANS_DIR/$domain/subtakeover.txt"
 
     # Display lines from subtakeover.txt that begin with [Vulnerable]
-    grep -v '^\[Not Vulnerable\]' "DayOneScans/$domain/subtakeover.txt"
+    grep -v '^\[Not Vulnerable\]' "$DAY_ONE_SCANS_DIR/$domain/subtakeover.txt"
     echo "====================================================="
 fi
 
@@ -678,7 +624,7 @@ if ! is_tool_disabled "dnstwist"; then
     echo "${GREEN}=============== Looking For Squatters ===============${NC}"
 
     # Run dnstwist
-    dnstwist -o DayOneScans/$domain/squatting.csv -f csv -t 20 -r "$domain"
+    dnstwist -o $DAY_ONE_SCANS_DIR/$domain/squatting.csv -f csv -t 20 -r "$domain"
     echo " "
     echo "${RED}Squatters found...      ${NC}"
 fi
@@ -692,13 +638,13 @@ if ! is_tool_disabled "DNSMap"; then
     echo " "
 
     # Use -w to write the HTTP status code to a variable, and -o to specify the output file
-    http_status=$(curl -w "%{http_code}" -o "DayOneScans/$domain/DNSMap.png" "https://dnsdumpster.com/static/map/$domain.png")
+    http_status=$(curl -w "%{http_code}" -o "$DAY_ONE_SCANS_DIR/$domain/DNSMap.png" "https://dnsdumpster.com/static/map/$domain.png")
     
     # Check if the HTTP status code is 200 (OK)
     if [ "$http_status" -eq 200 ]; then
         echo " "
         echo " "
-        echo "${ORANGE}DNSMap image downloaded to DayOneScans/$domain/DNSMap.png${NC}"
+        echo "${ORANGE}DNSMap image downloaded to $DAY_ONE_SCANS_DIR/$domain/DNSMap.png${NC}"
     else
         echo " "
         echo " "
@@ -720,14 +666,14 @@ if ! is_tool_disabled "registereddomains"; then
     tmux send-keys -t aadint_session2 "Import-Module AADInternals" C-m
     sleep 10
     # Send the PowerShell command to the TMUX session
-    tmux send-keys -t aadint_session2 "Get-AADIntTenantDomains -Domain $domain | Out-File -FilePath DayOneScans/$domain/registereddomains.txt" C-m
+    tmux send-keys -t aadint_session2 "Get-AADIntTenantDomains -Domain $domain | Out-File -FilePath $DAY_ONE_SCANS_DIR/$domain/registereddomains.txt" C-m
 
     # Wait for the command to finish
     sleep 20  # You can adjust the sleep time as needed
     tmux kill-session -t aadint_session2
 
-    grep -Eo '[A-Za-z0-9.-]+\.[A-Za-z]{2,}' "DayOneScans/$domain/registereddomains.txt" > "DayOneScans/$domain/extracted_domains.txt"
-    mv "DayOneScans/$domain/extracted_domains.txt" "DayOneScans/$domain/RegisteredDomainsSorted.txt"
+    grep -Eo '[A-Za-z0-9.-]+\.[A-Za-z]{2,}' "$DAY_ONE_SCANS_DIR/$domain/registereddomains.txt" > "$DAY_ONE_SCANS_DIR/$domain/extracted_domains.txt"
+    mv "$DAY_ONE_SCANS_DIR/$domain/extracted_domains.txt" "$DAY_ONE_SCANS_DIR/$domain/RegisteredDomainsSorted.txt"
     echo " "
     echo " "
     echo "${RED}           Registered Domain Data Captured          ${NC}"
@@ -750,85 +696,85 @@ if [ "$regions_flag" = true ]; then
 fi
 
 # Counting files contents for display
-if [ -r "DayOneScans/$domain/dnsrecords.txt" ]; then
-    dnsrecords=$(wc -l < "DayOneScans/$domain/dnsrecords.txt")
+if [ -r "$DAY_ONE_SCANS_DIR/$domain/dnsrecords.txt" ]; then
+    dnsrecords=$(wc -l < "$DAY_ONE_SCANS_DIR/$domain/dnsrecords.txt")
 else
-    echo "File 'DayOneScans/$domain/dnsrecords.txt' not found or is not readable."
+    echo "File '$DAY_ONE_SCANS_DIR/$domain/dnsrecords.txt' not found or is not readable."
     dnsrecords=0
 fi
 
-if [ -r "DayOneScans/$domain/hosts.txt" ]; then
-    hosts_count=$(wc -l < "DayOneScans/$domain/hosts.txt")
+if [ -r "$DAY_ONE_SCANS_DIR/$domain/hosts.txt" ]; then
+    hosts_count=$(wc -l < "$DAY_ONE_SCANS_DIR/$domain/hosts.txt")
 else
-    echo "File 'DayOneScans/$domain/hosts.txt' not found or is not readable."
+    echo "File '$DAY_ONE_SCANS_DIR/$domain/hosts.txt' not found or is not readable."
     hosts_count=0
 fi
 
-if [ -r "DayOneScans/$domain/subdomains.txt" ]; then
-    subdomains_count=$(wc -l < "DayOneScans/$domain/subdomains.txt")
+if [ -r "$DAY_ONE_SCANS_DIR/$domain/subdomains.txt" ]; then
+    subdomains_count=$(wc -l < "$DAY_ONE_SCANS_DIR/$domain/subdomains.txt")
 else
-    echo "File 'DayOneScans/$domain/subdomains.txt' not found or is not readable."
+    echo "File '$DAY_ONE_SCANS_DIR/$domain/subdomains.txt' not found or is not readable."
     subdomains_count=0
 fi
 
-if [ -r "DayOneScans/$domain/emails.txt" ]; then
-    emails_count=$(wc -l < "DayOneScans/$domain/emails.txt")
+if [ -r "$DAY_ONE_SCANS_DIR/$domain/emails.txt" ]; then
+    emails_count=$(wc -l < "$DAY_ONE_SCANS_DIR/$domain/emails.txt")
 else
-    echo "File 'DayOneScans/$domain/emails.txt' not found or is not readable."
+    echo "File '$DAY_ONE_SCANS_DIR/$domain/emails.txt' not found or is not readable."
     emails_count=0
 fi
 
-if [ -r "DayOneScans/$domain/usernames.txt" ]; then
-    usernames_count=$(wc -l < "DayOneScans/$domain/usernames.txt")
+if [ -r "$DAY_ONE_SCANS_DIR/$domain/usernames.txt" ]; then
+    usernames_count=$(wc -l < "$DAY_ONE_SCANS_DIR/$domain/usernames.txt")
 else
-    echo "File 'DayOneScans/$domain/usernames.txt' not found or is not readable."
+    echo "File '$DAY_ONE_SCANS_DIR/$domain/usernames.txt' not found or is not readable."
     usernames_count=0
 fi
 
-if [ -r "DayOneScans/$domain/squatting.csv" ]; then
-    squatting_count=$(wc -l < "DayOneScans/$domain/squatting.csv")
+if [ -r "$DAY_ONE_SCANS_DIR/$domain/squatting.csv" ]; then
+    squatting_count=$(wc -l < "$DAY_ONE_SCANS_DIR/$domain/squatting.csv")
     if [ "$squatting_count" -gt 0 ]; then
         ((squatting_count--))
     fi
 else
-    echo "File 'DayOneScans/$domain/squatting.csv' not found or is not readable."
+    echo "File '$DAY_ONE_SCANS_DIR/$domain/squatting.csv' not found or is not readable."
     squatting_count=0
 fi
 
 
-if [ -r "DayOneScans/$domain/RegisteredDomainsSorted.txt" ]; then
-    registered_domains=$(wc -l < "DayOneScans/$domain/RegisteredDomainsSorted.txt")
+if [ -r "$DAY_ONE_SCANS_DIR/$domain/RegisteredDomainsSorted.txt" ]; then
+    registered_domains=$(wc -l < "$DAY_ONE_SCANS_DIR/$domain/RegisteredDomainsSorted.txt")
 else
-    echo "File 'DayOneScans/$domain/RegisteredDomainsSorted.txt' not found or is not readable."
+    echo "File '$DAY_ONE_SCANS_DIR/$domain/RegisteredDomainsSorted.txt' not found or is not readable."
     registered_domains=0
 fi
 
-if [ -r "DayOneScans/$domain/validusers.txt" ]; then
-    valid_users=$(wc -l < "DayOneScans/$domain/validusers.txt")
+if [ -r "$DAY_ONE_SCANS_DIR/$domain/validusers.txt" ]; then
+    valid_users=$(wc -l < "$DAY_ONE_SCANS_DIR/$domain/validusers.txt")
 else
-    echo "File 'DayOneScans/$domain/validusers.txt' not found or is not readable."
+    echo "File '$DAY_ONE_SCANS_DIR/$domain/validusers.txt' not found or is not readable."
     valid_users=0
 fi
 
-if [ -r "DayOneScans/$domain/${domain}BreachData.csv" ]; then
-    breach_data_count=$(wc -l < "DayOneScans/$domain/${domain}BreachData.csv")
+if [ -r "$DAY_ONE_SCANS_DIR/$domain/${domain}BreachData.csv" ]; then
+    breach_data_count=$(wc -l < "$DAY_ONE_SCANS_DIR/$domain/${domain}BreachData.csv")
     if [ "$breach_data_count" -gt 0 ]; then
         ((breach_data_count--))
     fi
 else
-    echo "File 'DayOneScans/$domain/${domain}BreachData.csv' not found or is not readable."
+    echo "File '$DAY_ONE_SCANS_DIR/$domain/${domain}BreachData.csv' not found or is not readable."
     breach_data_count=0
 fi
 
 
-if [ -r "DayOneScans/$domain/metadata.csv" ]; then
-    meta_count=$(wc -l < "DayOneScans/$domain/metadata.csv")
+if [ -r "$DAY_ONE_SCANS_DIR/$domain/metadata.csv" ]; then
+    meta_count=$(wc -l < "$DAY_ONE_SCANS_DIR/$domain/metadata.csv")
     # Subtract one from meta_count unless it's zero
     if [ "$meta_count" -gt 0 ]; then
         ((meta_count--))
     fi
 else
-    echo "File 'DayOneScans/$domain/metadata.csv' not found or is not readable."
+    echo "File '$DAY_ONE_SCANS_DIR/$domain/metadata.csv' not found or is not readable."
     meta_count=0
 fi
 
@@ -875,178 +821,176 @@ echo "${GREEN}============== Creating HTML Document =============${NC}"
 echo " "
 echo " "
 # Start of the HTML file
-echo "<!DOCTYPE html>" > "DayOneScans/$domain/Report.html"
-echo "<html lang='en'>" >> "DayOneScans/$domain/Report.html"
-echo "<head>" >> "DayOneScans/$domain/Report.html"
-echo "    <meta charset='UTF-8'>" >> "DayOneScans/$domain/Report.html"
-echo "    <meta http-equiv='X-UA-Compatible' content='IE=edge'>" >> "DayOneScans/$domain/Report.html"
-echo "    <meta name='viewport' content='width=device-width, initial-scale=1.0'>" >> "DayOneScans/$domain/Report.html"
-echo "    <title>Security Report</title>" >> "DayOneScans/$domain/Report.html"
-echo "    <style>" >> "DayOneScans/$domain/Report.html"
-echo "        body { " >> "DayOneScans/$domain/Report.html"
-echo "            font-family: Arial, sans-serif;" >> "DayOneScans/$domain/Report.html"
-echo "            margin: 40px;" >> "DayOneScans/$domain/Report.html"
-echo "            background-color: black;" >> "DayOneScans/$domain/Report.html"
-echo "            color: white;" >> "DayOneScans/$domain/Report.html"
-echo "        }" >> "DayOneScans/$domain/Report.html"
-echo "        #toc { color: #f0f0f0; }" >> "DayOneScans/$domain/Report.html"
-echo "        #toc-section a { color: #3498db; text-decoration: none; }" >> "DayOneScans/$domain/Report.html"
-echo "        #toc-section { color: #3498db; }" >> "DayOneScans/$domain/Report.html"
-echo "        h1 { color: darkblue; }" >> "DayOneScans/$domain/Report.html"
-echo "        h2 { color: darkred; }" >> "DayOneScans/$domain/Report.html"
-echo "        p { line-height: 1.6; }" >> "DayOneScans/$domain/Report.html"
-echo "        section {" >> "DayOneScans/$domain/Report.html"
-echo "            background-color: #202020;" >> "DayOneScans/$domain/Report.html"
-echo "            border-radius: 5px;" >> "DayOneScans/$domain/Report.html"
-echo "            padding: 20px;" >> "DayOneScans/$domain/Report.html"
-echo "            margin-bottom: 20px;" >> "DayOneScans/$domain/Report.html"
-echo "        }" >> "DayOneScans/$domain/Report.html"
-echo "        pre {" >> "DayOneScans/$domain/Report.html"
-echo "            background-color: #303030;" >> "DayOneScans/$domain/Report.html"
-echo "            padding: 15px;" >> "DayOneScans/$domain/Report.html"
-echo "            border-radius: 5px;" >> "DayOneScans/$domain/Report.html"
-echo "        }" >> "DayOneScans/$domain/Report.html"
-echo "    </style>" >> "DayOneScans/$domain/Report.html"
-echo "</head>" >> "DayOneScans/$domain/Report.html"
-echo "<body>" >> "DayOneScans/$domain/Report.html"
+echo "<!DOCTYPE html>" > "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "<html lang='en'>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "<head>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "    <meta charset='UTF-8'>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "    <meta http-equiv='X-UA-Compatible' content='IE=edge'>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "    <meta name='viewport' content='width=device-width, initial-scale=1.0'>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "    <title>Security Report</title>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "    <style>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "        body { " >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "            font-family: Arial, sans-serif;" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "            margin: 40px;" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "            background-color: black;" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "            color: white;" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "        }" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "        #toc { color: #f0f0f0; }" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "        #toc-section a { color: #3498db; text-decoration: none; }" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "        #toc-section { color: #3498db; }" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "        h1 { color: darkblue; }" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "        h2 { color: darkred; }" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "        p { line-height: 1.6; }" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "        section {" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "            background-color: #202020;" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "            border-radius: 5px;" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "            padding: 20px;" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "            margin-bottom: 20px;" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "        }" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "        pre {" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "            background-color: #303030;" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "            padding: 15px;" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "            border-radius: 5px;" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "        }" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "    </style>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "</head>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "<body>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 
 # Table of Contents
-echo "<div id='toc-section'>" >> "DayOneScans/$domain/Report.html"
-echo "<h1 id='toc-section'>Table of Contents</h1>" >> "DayOneScans/$domain/Report.html"
-echo "<ul>" >> "DayOneScans/$domain/Report.html"
-echo "    <li><a href='#hosts'>Hosts</a></li>" >> "DayOneScans/$domain/Report.html"
-echo "    <li><a href='#dns'>DNS Information</a></li>" >> "DayOneScans/$domain/Report.html"
-echo "    <li><a href='#dnsrecords'>DNS Records</a></li>" >> "DayOneScans/$domain/Report.html"
-echo "    <li><a href='#subdomains'>Subdomains</a></li>" >> "DayOneScans/$domain/Report.html"
-echo "    <li><a href='#emails'>Emails</a></li>" >> "DayOneScans/$domain/Report.html"
-echo "    <li><a href='#usernames'>Usernames</a></li>" >> "DayOneScans/$domain/Report.html"
-echo "    <li><a href='#squatting'>Squatting</a></li>" >> "DayOneScans/$domain/Report.html"
-echo "    <li><a href='#registered_domains'>Registered Domains</a></li>" >> "DayOneScans/$domain/Report.html"
-echo "    <li><a href='#valid_users'>Valid User Accounts</a></li>" >> "DayOneScans/$domain/Report.html"
-echo "</ul>" >> "DayOneScans/$domain/Report.html"
-echo "</div>" >> "DayOneScans/$domain/Report.html"
+echo "<div id='toc-section'>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "<h1 id='toc-section'>Table of Contents</h1>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "<ul>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "    <li><a href='#hosts'>Hosts</a></li>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "    <li><a href='#dns'>DNS Information</a></li>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "    <li><a href='#dnsrecords'>DNS Records</a></li>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "    <li><a href='#subdomains'>Subdomains</a></li>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "    <li><a href='#emails'>Potential Emails</a></li>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "    <li><a href='#usernames'>Potential Usernames</a></li>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "    <li><a href='#squatting'>Squatting</a></li>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "    <li><a href='#registered_domains'>Registered Domains</a></li>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "    <li><a href='#valid_users'>Valid User Accounts</a></li>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "</ul>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "</div>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 
 
-# Add summary of results
-echo "<h1 id='toc-section'>Summary of Results</h1>" >> "DayOneScans/$domain/Report.html"
-echo "<p><b>DNS Records:</b> ( $dnsrecords )</p>" >> "DayOneScans/$domain/Report.html"
-echo "<p><b>Hosts:</b> ( $hosts_count )</p>" >> "DayOneScans/$domain/Report.html"
-echo "<p><b>Squatting:</b> ( $squatting_count )</p>" >> "DayOneScans/$domain/Report.html"
-echo "<p><b>Subdomains:</b> ( $subdomains_count )</p>" >> "DayOneScans/$domain/Report.html"
-echo "<p><b>Emails:</b> ( $emails_count )</p>" >> "DayOneScans/$domain/Report.html"
-echo "<p><b>Usernames:</b> ( $usernames_count )</p>" >> "DayOneScans/$domain/Report.html"
-echo "<p><b>Registered Domains:</b> ( $registered_domains )</p>" >> "DayOneScans/$domain/Report.html"
-echo "<p><b>Valid Users:</b> ( $valid_users )</p>" >> "DayOneScans/$domain/Report.html"
-echo "<p><b>Breach Records:</b> ( $breach_data_count )</p>" >> "DayOneScans/$domain/Report.html"
-echo "<p><b>Metadata:</b> ( $meta_count )</p>" >> "DayOneScans/$domain/Report.html"
+echo "<h1 id='toc-section'>Summary of Results</h1>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "<p><b>DNS Records:</b> ( $dnsrecords )</p>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "<p><b>Hosts:</b> ( $hosts_count )</p>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "<p><b>Squatting:</b> ( $squatting_count )</p>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "<p><b>Subdomains:</b> ( $subdomains_count )</p>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "<p><b>Potential Emails:</b> ( $emails_count )</p>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "<p><b>Potential Usernames:</b> ( $usernames_count )</p>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "<p><b>Registered Domains:</b> ( $registered_domains )</p>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "<p><b>Valid Users:</b> ( $valid_users )</p>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "<p><b>Breach Records:</b> ( $breach_data_count )</p>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "<p><b>Metadata:</b> ( $meta_count )</p>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 
 # Insert contents
-# Insert contents
-if [ -r "DayOneScans/$domain/hosts.txt" ]; then
-    echo "<section>" >> "DayOneScans/$domain/Report.html"    
-    echo "    <h2 id='hosts'>Hosts:</h2>" >> "DayOneScans/$domain/Report.html"
-    echo "    <pre>" >> "DayOneScans/$domain/Report.html"
-    cat "DayOneScans/$domain/hosts.txt" >> "DayOneScans/$domain/Report.html"
-    echo "    </pre>" >> "DayOneScans/$domain/Report.html"
-    echo "</section>" >> "DayOneScans/$domain/Report.html"
+if [ -r "$DAY_ONE_SCANS_DIR/$domain/hosts.txt" ]; then
+    echo "<section>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"    
+    echo "    <h2 id='hosts'>Hosts:</h2>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    <pre>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    cat "$DAY_ONE_SCANS_DIR/$domain/hosts.txt" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    </pre>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "</section>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 else
-    echo "    <p>No hosts data found.</p>" >> "DayOneScans/$domain/Report.html"
+    echo "    <p>No hosts data found.</p>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 fi
 
-if [ -r "DayOneScans/$domain/DNSInfo" ]; then
-    echo "<section>" >> "DayOneScans/$domain/Report.html"
-    echo "    <h2 id='dns'>DNS Info and Zone Transfer:</h2>" >> "DayOneScans/$domain/Report.html"
-    echo "    <pre>" >> "DayOneScans/$domain/Report.html"
-    cat "DayOneScans/$domain/DNSInfo" >> "DayOneScans/$domain/Report.html"
-    echo "    </pre>" >> "DayOneScans/$domain/Report.html"
-    echo "</section>" >> "DayOneScans/$domain/Report.html"
+if [ -r "$DAY_ONE_SCANS_DIR/$domain/DNSInfo" ]; then
+    echo "<section>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    <h2 id='dns'>DNS Info and Zone Transfer:</h2>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    <pre>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    cat "$DAY_ONE_SCANS_DIR/$domain/DNSInfo" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    </pre>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "</section>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 else
-    echo "    <p>No DNS data found.</p>" >> "DayOneScans/$domain/Report.html"
+    echo "    <p>No DNS data found.</p>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 fi
 
-if [ -r "DayOneScans/$domain/dnsrecords.txt" ]; then
-    echo "<section>" >> "DayOneScans/$domain/Report.html"
-    echo "    <h2 id='dnsrecords'>DNS Records:</h2>" >> "DayOneScans/$domain/Report.html"
-    echo "    <pre>" >> "DayOneScans/$domain/Report.html"
-    cat "DayOneScans/$domain/dnsrecords.txt" >> "DayOneScans/$domain/Report.html"
-    echo "    </pre>" >> "DayOneScans/$domain/Report.html"
-    echo "</section>" >> "DayOneScans/$domain/Report.html"
+if [ -r "$DAY_ONE_SCANS_DIR/$domain/dnsrecords.txt" ]; then
+    echo "<section>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    <h2 id='dnsrecords'>DNS Records:</h2>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    <pre>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    cat "$DAY_ONE_SCANS_DIR/$domain/dnsrecords.txt" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    </pre>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "</section>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 else
-    echo "    <p>No DNS data found.</p>" >> "DayOneScans/$domain/Report.html"
+    echo "    <p>No DNS data found.</p>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 fi
 
-if [ -r "DayOneScans/$domain/subdomains.txt" ]; then
-    echo "<section>" >> "DayOneScans/$domain/Report.html"
-    echo "    <h2 id='subdomains'>Subdomains:</h2>" >> "DayOneScans/$domain/Report.html"
-    echo "    <pre>" >> "DayOneScans/$domain/Report.html"
-    cat "DayOneScans/$domain/subdomains.txt" >> "DayOneScans/$domain/Report.html"
-    echo "    </pre>" >> "DayOneScans/$domain/Report.html"
-    echo "</section>" >> "DayOneScans/$domain/Report.html"
+if [ -r "$DAY_ONE_SCANS_DIR/$domain/subdomains.txt" ]; then
+    echo "<section>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    <h2 id='subdomains'>Subdomains:</h2>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    <pre>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    cat "$DAY_ONE_SCANS_DIR/$domain/subdomains.txt" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    </pre>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "</section>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 else
-    echo "    <p>No Subdomains found.</p>" >> "DayOneScans/$domain/Report.html"
+    echo "    <p>No Subdomains found.</p>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 fi
 
-if [ -r "DayOneScans/$domain/emails.txt" ]; then
-    echo "<section>" >> "DayOneScans/$domain/Report.html"
-    echo "    <h2 id='emails'>Emails:</h2>" >> "DayOneScans/$domain/Report.html"
-    echo "    <pre>" >> "DayOneScans/$domain/Report.html"
-    cat "DayOneScans/$domain/emails.txt" >> "DayOneScans/$domain/Report.html"
-    echo "    </pre>" >> "DayOneScans/$domain/Report.html"
-    echo "</section>" >> "DayOneScans/$domain/Report.html"
+if [ -r "$DAY_ONE_SCANS_DIR/$domain/emails.txt" ]; then
+    echo "<section>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    <h2 id='emails'>Potential Emails:</h2>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    <pre>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    cat "$DAY_ONE_SCANS_DIR/$domain/emails.txt" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    </pre>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "</section>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 else
-    echo "    <p>No Emails found.</p>" >> "DayOneScans/$domain/Report.html"
+    echo "    <p>No Emails found.</p>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 fi
 
-if [ -r "DayOneScans/$domain/usernames.txt" ]; then
-    echo "<section>" >> "DayOneScans/$domain/Report.html"
-    echo "    <h2 id='usernames'>Usernames:</h2>" >> "DayOneScans/$domain/Report.html"
-    echo "    <pre>" >> "DayOneScans/$domain/Report.html"
-    cat "DayOneScans/$domain/usernames.txt" >> "DayOneScans/$domain/Report.html"
-    echo "    </pre>" >> "DayOneScans/$domain/Report.html"
-    echo "</section>" >> "DayOneScans/$domain/Report.html"
+if [ -r "$DAY_ONE_SCANS_DIR/$domain/usernames.txt" ]; then
+    echo "<section>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    <h2 id='usernames'Potential Usernames:</h2>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    <pre>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    cat "$DAY_ONE_SCANS_DIR/$domain/usernames.txt" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    </pre>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "</section>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 else
-    echo "    <p>No Usernames found.</p>" >> "DayOneScans/$domain/Report.html"
+    echo "    <p>No Usernames found.</p>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 fi
 
-if [ -r "DayOneScans/$domain/squatting.csv" ]; then
-    echo "<section>" >> "DayOneScans/$domain/Report.html"
-    echo "    <h2 id='squatting'>Squatting:</h2>" >> "DayOneScans/$domain/Report.html"
-    echo "    <pre>" >> "DayOneScans/$domain/Report.html"
-    cat "DayOneScans/$domain/squatting.csv" >> "DayOneScans/$domain/Report.html"
-    echo "    </pre>" >> "DayOneScans/$domain/Report.html"
-    echo "</section>" >> "DayOneScans/$domain/Report.html"
+if [ -r "$DAY_ONE_SCANS_DIR/$domain/squatting.csv" ]; then
+    echo "<section>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    <h2 id='squatting'>Squatting:</h2>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    <pre>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    cat "$DAY_ONE_SCANS_DIR/$domain/squatting.csv" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    </pre>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "</section>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 else
-    echo "    <p>No Squatting found.</p>" >> "DayOneScans/$domain/Report.html"
+    echo "    <p>No Squatting found.</p>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 fi
 
-if [ -r "DayOneScans/$domain/RegisteredDomainsSorted.txt" ]; then
-    echo "<section>" >> "DayOneScans/$domain/Report.html"
-    echo "    <h2 id='registered_domains'>Registered Domains:</h2>" >> "DayOneScans/$domain/Report.html"
-    echo "    <pre>" >> "DayOneScans/$domain/Report.html"
-    cat "DayOneScans/$domain/RegisteredDomainsSorted.txt" >> "DayOneScans/$domain/Report.html"
-    echo "    </pre>" >> "DayOneScans/$domain/Report.html"
-    echo "</section>" >> "DayOneScans/$domain/Report.html"
+if [ -r "$DAY_ONE_SCANS_DIR/$domain/RegisteredDomainsSorted.txt" ]; then
+    echo "<section>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    <h2 id='registered_domains'>Registered Domains:</h2>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    <pre>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    cat "$DAY_ONE_SCANS_DIR/$domain/RegisteredDomainsSorted.txt" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    </pre>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "</section>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 else
-    echo "    <p>No Registered Domains found.</p>" >> "DayOneScans/$domain/Report.html"
+    echo "    <p>No Registered Domains found.</p>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 fi
 
-if [ -r "DayOneScans/$domain/validusers.txt" ]; then
-    echo "<section>" >> "DayOneScans/$domain/Report.html"
-    echo "    <h2 id='valid_users'>Valid User Accounts:</h2>" >> "DayOneScans/$domain/Report.html"
-    echo "    <pre>" >> "DayOneScans/$domain/Report.html"
-    cat "DayOneScans/$domain/validusers.txt" >> "DayOneScans/$domain/Report.html"
-    echo "    </pre>" >> "DayOneScans/$domain/Report.html"
-    echo "</section>" >> "DayOneScans/$domain/Report.html"
+if [ -r "$DAY_ONE_SCANS_DIR/$domain/validusers.txt" ]; then
+    echo "<section>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    <h2 id='valid_users'>Valid User Accounts:</h2>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    <pre>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    cat "$DAY_ONE_SCANS_DIR/$domain/validusers.txt" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "    </pre>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+    echo "</section>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 else
-    echo "    <p>No Valid Users found.</p>" >> "DayOneScans/$domain/Report.html"
+    echo "    <p>No Valid Users found.</p>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 fi
 
 # Close the HTML file
-echo "</body>" >> "DayOneScans/$domain/Report.html"
-echo "</html>" >> "DayOneScans/$domain/Report.html"
+echo "</body>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
+echo "</html>" >> "$DAY_ONE_SCANS_DIR/$domain/Report.html"
 
 # Print a completion message
-echo "HTML report generated at DayOneScans/$domain/Report.html"
+echo "HTML report generated at $DAY_ONE_SCANS_DIR/$domain/Report.html"
 
 # Zip all files
 echo " "
@@ -1057,7 +1001,7 @@ echo "${GREEN}================== Zipping Files ==================${NC}"
 # Define the zip filename
 zip_filename="${domain}_OSINT.zip"
 
-cd "DayOneScans/$domain"
+cd "$DAY_ONE_SCANS_DIR/$domain"
 
 # Check if the zip file already exists
 while [ -e "$zip_filename" ]; do
