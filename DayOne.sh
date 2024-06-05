@@ -96,7 +96,7 @@ declare -A tool_urls=(
     ["cloud_enum"]="https://github.com/initstring/cloud_enum.git"
     ["onedrive_user_enum"]="https://github.com/nyxgeek/onedrive_user_enum.git"
     ["subfinder"]="https://github.com/projectdiscovery/subfinder.git"
-    ["crt_sh"]="https://github.com/az7rb/crt.sh.git"
+    ["crt.sh"]="https://github.com/az7rb/crt.sh.git"
 )
 
 # Function to clone a repository with retries
@@ -538,7 +538,7 @@ if [ "$direct_send" == "yes" ]; then
     echo " "
     tmux new-session -d -s mail_session 'pwsh'
     sleep 4
-    tmux send-keys -t mail_session "Send-MailMessage -SmtpServer $smtp_server -To $poc_email -From test@$domain -Subject 'Test Email' -Body 'This is a test as part of the current round of testing. Please forward this to $employee_email' -BodyAsHTML" C-m
+    tmux send-keys -t mail_session "Send-MailMessage -SmtpServer $smtp_server -To $poc_email -From test@$domain -Subject 'Test Email' -Body 'This is a part of the current round of testing. Please forward this to $employee_email' -BodyAsHTML" C-m
     sleep 10
     tmux capture-pane -t mail_session -e -p > "$DAY_ONE_SCANS_DIR/$domain/DirectSend.txt"
     cat "$DAY_ONE_SCANS_DIR/$domain/DirectSend.txt"
@@ -566,11 +566,11 @@ if ! is_tool_disabled "crt.sh"; then
     echo " "
     echo " "
     echo " "
-    cd $TOOLS_DIR/crt_sh/crt.sh
+    cd $TOOLS_DIR/crt.sh
     chmod +x crt.sh
     ./crt.sh -d $domain
     cd -
-    mv $TOOLS_DIR/crt_sh/crt.sh/output/domain.$domain.txt $DAY_ONE_SCANS_DIR/$domain/crtsubdomains.txt
+    mv $TOOLS_DIR/crt.sh/output/domain.$domain.txt $DAY_ONE_SCANS_DIR/$domain/crtsubdomains.txt
 fi
 
 cat "$DAY_ONE_SCANS_DIR/$domain/crtsubdomains.txt" >> "$DAY_ONE_SCANS_DIR/$domain/subdomains.txt"
