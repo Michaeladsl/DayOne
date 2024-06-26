@@ -473,11 +473,14 @@ fi
 # Run cloud_enum.py with specified parameters
 if ! is_tool_disabled "cloudenum"; then
     echo "${GREEN}========== Running cloud_enum ==========${NC}"
+
+    cloud_enum_keyword="${domain%.*}"
+
     keyword_params=""
     for keyword in "${additional_keywords[@]}"; do
-        keyword_params+="-k '$keyword' "
+        keyword_params+="-k $keyword " 
     done
-    script -c "python3 $TOOLS_DIR/cloud_enum/cloud_enum.py -k '$domain' -k '$cloud_enum_keyword' $keyword_params -t 25 -l '$DAY_ONE_SCANS_DIR/$domain/CloudEnum.Log' | grep -v -e '\[!\] DNS Timeout on' -e '\[!\] Connection error on' -e '^HTTPConnectionPool'" -f "$DAY_ONE_SCANS_DIR/$domain/CloudEnumFULL.txt"
+    script -c "python3 $TOOLS_DIR/cloud_enum/cloud_enum.py -k '$domain' -k '$cloud_enum_keyword' $keyword_params -t 25 -l \"$DAY_ONE_SCANS_DIR/$domain/CloudEnum.Log\" | grep -v -e '\[!\] DNS Timeout on' -e '\[!\] Connection error on' -e '^HTTPConnectionPool'" -f "$DAY_ONE_SCANS_DIR/$domain/CloudEnumFULL.txt"
 fi
 
 # Process validated emails and usernames
