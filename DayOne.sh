@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Creator: Michael Raines
-CURRENT_VERSION="1.9"
+CURRENT_VERSION="1.10"
 REPO_URL="https://raw.githubusercontent.com/Michaeladsl/DayOne/main/DayOne.sh"
 
 SCRIPT_DIR=$(dirname "$(realpath "$0")")
@@ -143,6 +143,7 @@ for tool in "${!tool_urls[@]}"; do
 done
 
 sudo apt update && sudo apt install golang -y > /dev/null 2>&1
+pip3 install mysql.connector
 
 SUBFINDER_DIR="$TOOLS_DIR/subfinder/v2/cmd/subfinder"
 if [ -d "$SUBFINDER_DIR" ]; then
@@ -184,7 +185,7 @@ if [ $new_tool_downloaded -eq 1 ]; then
     mv temp_requirements.txt combined_requirements.txt
     
     # Install required Python packages
-    pip install -r combined_requirements.txt
+    pip3 install -r combined_requirements.txt
 fi
 
 if [ "$regions_flag" = true ]; then
@@ -349,7 +350,7 @@ echo " "
 echo " "
 echo " "
 echo " "
-
+AADUserEnum=$(echo "$AADUserEnum" | tr '[:upper:]' '[:lower:]')
 read -p "${ORANGE}Do you have permission to test cloud environments (AADUserEnum)?${NC}(${GREEN}YES${NC}/${RED}NO${NC})${YELLOW}:${NC} " permission
 echo " "
 echo " "
@@ -381,7 +382,7 @@ if ! is_tool_disabled "crosslinked"; then
     echo " "
     echo "${GREEN}========== Running Crosslinked ==========${NC}"
     echo " "
-    python "$DAY_ONE_SCANS_DIR/tools/CrossLinked/crosslinked.py" -j 7 -f "${format}@${domain}" "$org_name" -o "$DAY_ONE_SCANS_DIR/$domain/emails"
+    python3 "$DAY_ONE_SCANS_DIR/tools/CrossLinked/crosslinked.py" -j 7 -f "${format}@${domain}" "$org_name" -o "$DAY_ONE_SCANS_DIR/$domain/emails"
 
     echo " "
     echo "Processing and cleaning up emails.txt..."
@@ -450,7 +451,7 @@ if ! is_tool_disabled "onedrive_enum"; then
     echo " "
     echo " "
     cd "$TOOLS_DIR/onedrive_user_enum"
-    python onedrive_enum.py -d "$domain" -U "$DAY_ONE_SCANS_DIR/$domain/usernames.txt" -r
+    python3 onedrive_enum.py -d "$domain" -U "$DAY_ONE_SCANS_DIR/$domain/usernames.txt" -r
     mv emails* "$DAY_ONE_SCANS_DIR/$domain/emails_valid.txt"
     cd - > /dev/null
 fi
@@ -476,7 +477,7 @@ if ! is_tool_disabled "cloudenum"; then
     for keyword in "${additional_keywords[@]}"; do
         keyword_params+="-k '$keyword' "
     done
-    script -c "python $TOOLS_DIR/cloud_enum/cloud_enum.py -k '$domain' -k '$cloud_enum_keyword' $keyword_params -t 25 -l '$DAY_ONE_SCANS_DIR/$domain/CloudEnum.Log' | grep -v -e '\[!\] DNS Timeout on' -e '\[!\] Connection error on' -e '^HTTPConnectionPool'" -f "$DAY_ONE_SCANS_DIR/$domain/CloudEnumFULL.txt"
+    script -c "python3 $TOOLS_DIR/cloud_enum/cloud_enum.py -k '$domain' -k '$cloud_enum_keyword' $keyword_params -t 25 -l '$DAY_ONE_SCANS_DIR/$domain/CloudEnum.Log' | grep -v -e '\[!\] DNS Timeout on' -e '\[!\] Connection error on' -e '^HTTPConnectionPool'" -f "$DAY_ONE_SCANS_DIR/$domain/CloudEnumFULL.txt"
 fi
 
 # Process validated emails and usernames
@@ -493,7 +494,7 @@ if [ -f "$DAY_ONE_SCANS_DIR/$domain/AADuserenum.txt" ]; then
 fi
 
 
-
+sleep 5
 
 # Run dnscan.py with specified parameters
 if ! is_tool_disabled "dnscan"; then
@@ -504,7 +505,9 @@ if ! is_tool_disabled "dnscan"; then
     echo "${GREEN}========== Gathering DNS Info ==========${NC}"
     echo " "
     echo " "
-    python $TOOLS_DIR/dnscan/dnscan.py -d "$domain" -n -o "$DAY_ONE_SCANS_DIR/$domain/DNSInfo" -t 50
+    sed -i -E 's/timeout=([0-9]+)/timeout=4/g' "$TOOLS_DIR/dnscan/dnscan.py"
+    sed -i -E 's/timeout[ ]*=[ ]*([0-9]+)/timeout = 4/g' "$TOOLS_DIR/dnscan/dnscan.py"
+    python3 $TOOLS_DIR/dnscan/dnscan.py -d "$domain" -n -o "$DAY_ONE_SCANS_DIR/$domain/DNSInfo"
     awk -F" - " '/ - / {print $2}' "$DAY_ONE_SCANS_DIR/$domain/DNSInfo" > "$DAY_ONE_SCANS_DIR/$domain/temp_dnsinfo.txt"
     
 
@@ -538,7 +541,7 @@ if [ "$direct_send" == "yes" ]; then
     echo " "
     tmux new-session -d -s mail_session 'pwsh'
     sleep 4
-    tmux send-keys -t mail_session "Send-MailMessage -SmtpServer $smtp_server -To $poc_email -From test@$domain -Subject 'Test Email' -Body 'This is a part of the current round of testing. Please forward this to $employee_email' -BodyAsHTML" C-m
+    tmux send-keys -t mail_session "Send-MailMessage -SmtpServer $smtp_server -To $poc_email -From test@$domain -Subject 'Test Email' -Body 'This is a test as part of the current round of testing. Please forward this to $employee_email' -BodyAsHTML" C-m
     sleep 10
     tmux capture-pane -t mail_session -e -p > "$DAY_ONE_SCANS_DIR/$domain/DirectSend.txt"
     cat "$DAY_ONE_SCANS_DIR/$domain/DirectSend.txt"
